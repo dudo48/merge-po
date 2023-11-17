@@ -30,12 +30,15 @@ def merge_po(original_path, exported_path, output_path, regex, all_refs=False):
                 entry.occurrences = matched_occurrences
             exported_entry_by_msgid[entry.msgid] = entry
 
-    # merge existing entries
+
+    # statistical variables
     lines_added = lines_removed = merged_entries_count = 0
+
+    # merge existing entries
     merged_entries = set()
     duplicate_merged_entries = set()
     original_entry_by_line_num = {en.linenum: en for en in polib.pofile(original_path)}
-    original_entries_to_remove = {v for k, v in original_entry_by_msgid.items() if v.msgid not in exported_entry_by_msgid}
+    original_entries_to_remove = {en for _, en in original_entry_by_msgid.items() if en.msgid not in exported_entry_by_msgid}
     with open(output_path, 'w', encoding='utf-8') as out_f, open(original_path, 'r', encoding='utf-8') as orig_f:
         previous_line = ''
         line_num = ref_index = 0
@@ -58,7 +61,7 @@ def merge_po(original_path, exported_path, output_path, regex, all_refs=False):
                     if (all_refs or re.search(regex, line)) and original_entry.occurrences[ref_index] not in exported_entry_occurrences:
                         write_line = False
                     ref_index += 1
-                # add new lines at the end
+                # add new lines after the references
                 elif is_reference(previous_line):
                     new_occurrences = set(exported_entry.occurrences) - set(original_entry.occurrences)
                     for occ in new_occurrences:
@@ -116,7 +119,7 @@ if __name__ == '__main__':
     parser.add_argument('-e', '--exported-path', required=True, help='Exported file path')
     parser.add_argument('-o', '--output-path', required=True, help='Output file path')
     parser.add_argument('-r', '--regex', required=True, help='Match only entries that have occurrences matching this regex')
-    parser.add_argument('--all-refs', action='store_true', help='Whether to add all different references present in '
+    parser.add_argument('-a', '--all-refs', action='store_true', help='Whether to add all different references present in '
                                                                 'the exported file or add only those that match the'
                                                                 ' specified regex')
     merge_po(**vars(parser.parse_args()))
