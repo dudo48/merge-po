@@ -21,28 +21,28 @@ def occurrences_match_regex(entry, regex):
 
 
 def merge_po(original_path, exported_path, output_path, regex, all_refs=False):
+    original_entry_by_msgid = {en.msgid: en for en in polib.pofile(original_path) if occurrences_match_regex(en, regex)}
     exported_entry_by_msgid = {}
     for entry in polib.pofile(exported_path):
         matched_occurrences = occurrences_match_regex(entry, regex)
-        if matched_occurrences:
+        if matched_occurrences or entry.msgid in original_entry_by_msgid:
             if not all_refs:
                 entry.occurrences = matched_occurrences
             exported_entry_by_msgid[entry.msgid] = entry
-    original_entries_to_remove = {
-        en for en in polib.pofile(original_path) if occurrences_match_regex(en, regex) and en.msgid not in exported_entry_by_msgid
-    }
 
     # merge existing entries
-    stats = {'lines_added': 0, 'lines_removed': 0, 'merged_entries': 0}
+    lines_added = lines_removed = merged_entries_count = 0
     merged_entries = set()
     duplicate_merged_entries = set()
     original_entry_by_line_num = {en.linenum: en for en in polib.pofile(original_path)}
+    original_entries_to_remove = {v for k, v in original_entry_by_msgid.items() if v.msgid not in exported_entry_by_msgid}
     with open(output_path, 'w', encoding='utf-8') as out_f, open(original_path, 'r', encoding='utf-8') as orig_f:
         previous_line = ''
         line_num = ref_index = 0
         original_entry = exported_entry = exported_entry_occurrences = None
         for line in orig_f:
             line_num += 1
+            write_line = True
             # assign entries
             if line_num in original_entry_by_line_num:
                 original_entry = original_entry_by_line_num[line_num]
@@ -56,30 +56,28 @@ def merge_po(original_path, exported_path, output_path, regex, all_refs=False):
                 if is_reference(line):
                     # do not write unused refs
                     if (all_refs or re.search(regex, line)) and original_entry.occurrences[ref_index] not in exported_entry_occurrences:
-                        stats['lines_removed'] += 1
-                    else:
-                        out_f.write(line)
+                        write_line = False
                     ref_index += 1
                 # add new lines at the end
                 elif is_reference(previous_line):
                     new_occurrences = set(exported_entry.occurrences) - set(original_entry.occurrences)
                     for occ in new_occurrences:
                         out_f.write(f'{occurrence_to_reference(occ)}\n')
-                    out_f.write(line)
                     if new_occurrences:
                         print(colored(f'Merged entry:  \'{exported_entry.msgid}\'', 'cyan'))
-                        stats['merged_entries'] += 1
+                        merged_entries_count += 1
                     if exported_entry in merged_entries:
                         duplicate_merged_entries.add(exported_entry)
                     merged_entries.add(exported_entry)
-                    stats['lines_added'] += len(new_occurrences)
+                    lines_added += len(new_occurrences)
                     ref_index = 0
-                else:
-                    out_f.write(line)
-            elif original_entry and original_entry in original_entries_to_remove:
-                stats['lines_removed'] += 1
-            else:
+            if original_entry in original_entries_to_remove:
+                write_line = False
+
+            if write_line:
                 out_f.write(line)
+            else:
+                lines_removed += 1
             previous_line = line
     
     # log removed original entries
@@ -94,15 +92,18 @@ def merge_po(original_path, exported_path, output_path, regex, all_refs=False):
             for entry in new_entries:
                 out_f.write(f'\n{str(entry)}')
                 print(colored(f'Added entry:   \'{entry.msgid}\'', 'green'))
-                stats['lines_added'] += str(entry).count('\n')
+                lines_added += str(entry).count('\n')
 
     
     print(
         'Added ' + colored(f'{len(new_entries)} entries', 'green')
-        + ', merged ' + colored(f'{stats["merged_entries"]} entries', 'cyan')
+        + ', merged ' + colored(f'{merged_entries_count} entries', 'cyan')
         + ' and removed ' + colored(f'{len(original_entries_to_remove)} entries', 'red')
     )
-    print('Added ' + colored(f'{stats["lines_added"]} line(s)', 'green') + ' and removed ' + colored(f'{stats["lines_removed"]} line(s)', 'red'))
+    print(
+        'Added ' + colored(f'{lines_added} line(s)', 'green')
+        + ' and removed ' + colored(f'{lines_removed} line(s)', 'red')
+    )
 
     # warn about duplicates
     for entry in duplicate_merged_entries:
