@@ -1,5 +1,7 @@
 import argparse
 import re
+from operator import itemgetter, attrgetter
+import itertools
 
 import polib
 from termcolor import colored
@@ -24,7 +26,7 @@ def merge_po(original_path, exported_path, output_path, regex, all_refs=False):
     # compute new references and occurrences to remove
     matched_original_entries = {en for en in polib.pofile(original_path) if occurrences_matching(en.occurrences, regex)}
     exported_entry_by_msgid = {en.msgid: en for en in polib.pofile(exported_path)}
-    new_references, occurrences_to_remove, original_entries_to_remove = {}, {}, set()
+    new_references, occurrences_to_remove, entries_to_remove = {}, {}, set()
     for original_entry in matched_original_entries:
         if original_entry.msgid in exported_entry_by_msgid:
             exported_entry = exported_entry_by_msgid[original_entry.msgid]
@@ -42,7 +44,7 @@ def merge_po(original_path, exported_path, output_path, regex, all_refs=False):
             occurrences_to_remove[original_entry] = set(not_in_exported)
         else:
             # remove entries with msgids not in exported
-            original_entries_to_remove.add(original_entry)
+            entries_to_remove.add(original_entry)
 
     # statistical variables
     lines_added = lines_removed = merged_entries_count = 0
@@ -59,7 +61,7 @@ def merge_po(original_path, exported_path, output_path, regex, all_refs=False):
             original_entry = original_entry_by_line_num.get(line_num, original_entry)
 
             # remove entry
-            if original_entry in original_entries_to_remove:
+            if original_entry in entries_to_remove:
                 write_line = False
                 if line_num in original_entry_by_line_num:
                     print(colored(f'Removed entry: \'{original_entry.msgid}\'', 'red'))
@@ -97,12 +99,19 @@ def merge_po(original_path, exported_path, output_path, regex, all_refs=False):
     print(
         'Added ' + colored(f'{len(new_entries)} entries', 'green')
         + ', merged ' + colored(f'{merged_entries_count} entries', 'cyan')
-        + ' and removed ' + colored(f'{len(original_entries_to_remove)} entries', 'red')
+        + ' and removed ' + colored(f'{len(entries_to_remove)} entries', 'red')
     )
     print(
         'Added ' + colored(f'{lines_added} line(s)', 'green')
         + ' and removed ' + colored(f'{lines_removed} line(s)', 'red')
     )
+
+    # warning about  duplicates
+    matched_original_entries_msgids = set()
+    for entry in matched_original_entries:
+        if entry.msgid in matched_original_entries_msgids:
+            print(colored(f'Duplicate entry: \'{entry.msgid}\'', 'yellow'))
+        matched_original_entries_msgids.add(entry.msgid)
 
 
 if __name__ == '__main__':
