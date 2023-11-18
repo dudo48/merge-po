@@ -16,79 +16,76 @@ def occurrence_to_reference(occ):
 
 
 # returns occurrences of the entry that match the regex
-def occurrences_match_regex(entry, regex):
-    return [occ for occ in entry.occurrences if re.search(regex, occurrence_to_reference(occ))]
+def occurrences_matching(occurrences, regex):
+    return [occ for occ in occurrences if re.search(regex, occurrence_to_reference(occ))]
 
 
 def merge_po(original_path, exported_path, output_path, regex, all_refs=False):
-    original_entry_by_msgid = {en.msgid: en for en in polib.pofile(original_path) if occurrences_match_regex(en, regex)}
-    exported_entry_by_msgid = {}
-    for entry in polib.pofile(exported_path):
-        matched_occurrences = occurrences_match_regex(entry, regex)
-        if matched_occurrences or entry.msgid in original_entry_by_msgid:
-            if not all_refs:
-                entry.occurrences = matched_occurrences
-            exported_entry_by_msgid[entry.msgid] = entry
+    # compute new references and occurrences to remove
+    matched_original_entries = {en for en in polib.pofile(original_path) if occurrences_matching(en.occurrences, regex)}
+    exported_entry_by_msgid = {en.msgid: en for en in polib.pofile(exported_path)}
+    new_references, occurrences_to_remove, original_entries_to_remove = {}, {}, set()
+    for original_entry in matched_original_entries:
+        if original_entry.msgid in exported_entry_by_msgid:
+            exported_entry = exported_entry_by_msgid[original_entry.msgid]
 
+            # compute new references
+            not_in_original = set(exported_entry.occurrences) - set(original_entry.occurrences)
+            if not all_refs:
+                not_in_original = occurrences_matching(not_in_original, regex)
+            new_references[original_entry] = sorted([occurrence_to_reference(occ) for occ in not_in_original])
+
+            # compute occurrences to remove
+            not_in_exported = set(original_entry.occurrences) - set(exported_entry.occurrences)
+            if not all_refs:
+                not_in_exported = occurrences_matching(not_in_exported, regex)
+            occurrences_to_remove[original_entry] = set(not_in_exported)
+        else:
+            # remove entries with msgids not in exported
+            original_entries_to_remove.add(original_entry)
 
     # statistical variables
     lines_added = lines_removed = merged_entries_count = 0
 
     # merge existing entries
-    merged_entries = set()
-    duplicate_merged_entries = set()
     original_entry_by_line_num = {en.linenum: en for en in polib.pofile(original_path)}
-    original_entries_to_remove = {en for _, en in original_entry_by_msgid.items() if en.msgid not in exported_entry_by_msgid}
     with open(output_path, 'w', encoding='utf-8') as out_f, open(original_path, 'r', encoding='utf-8') as orig_f:
         previous_line = ''
         line_num = ref_index = 0
-        original_entry = exported_entry = exported_entry_occurrences = None
+        original_entry = None
         for line in orig_f:
             line_num += 1
             write_line = True
-            # assign entries
-            if line_num in original_entry_by_line_num:
-                original_entry = original_entry_by_line_num[line_num]
-                if original_entry.msgid in exported_entry_by_msgid:
-                    exported_entry = exported_entry_by_msgid[original_entry.msgid]
-                    exported_entry_occurrences = set(exported_entry.occurrences)
-                else:
-                    exported_entry = exported_entry_occurrences = None
-            # if we're inside a matched entry
-            if original_entry and exported_entry:
-                if is_reference(line):
-                    # do not write unused refs
-                    if (all_refs or re.search(regex, line)) and original_entry.occurrences[ref_index] not in exported_entry_occurrences:
-                        write_line = False
-                    ref_index += 1
-                # add new lines after the references
-                elif is_reference(previous_line):
-                    new_occurrences = set(exported_entry.occurrences) - set(original_entry.occurrences)
-                    for occ in new_occurrences:
-                        out_f.write(f'{occurrence_to_reference(occ)}\n')
-                    if new_occurrences:
-                        print(colored(f'Merged entry:  \'{exported_entry.msgid}\'', 'cyan'))
-                        merged_entries_count += 1
-                    if exported_entry in merged_entries:
-                        duplicate_merged_entries.add(exported_entry)
-                    merged_entries.add(exported_entry)
-                    lines_added += len(new_occurrences)
-                    ref_index = 0
+            original_entry = original_entry_by_line_num.get(line_num, original_entry)
+
+            # remove entry
             if original_entry in original_entries_to_remove:
                 write_line = False
+                if line_num in original_entry_by_line_num:
+                    print(colored(f'Removed entry: \'{original_entry.msgid}\'', 'red'))
+            
+            # remove reference
+            elif occurrences_to_remove.get(original_entry, None) and is_reference(line):
+                write_line = original_entry.occurrences[ref_index] not in occurrences_to_remove[original_entry]
+            
+            # add references
+            elif new_references.get(original_entry, None) and not is_reference(line) and is_reference(previous_line):
+                for ref in new_references[original_entry]:
+                    out_f.write(ref + '\n')
+                    lines_added += 1
+                print(colored(f'Merged entry:  \'{original_entry.msgid}\'', 'cyan'))
+                merged_entries_count += 1
 
             if write_line:
                 out_f.write(line)
             else:
                 lines_removed += 1
             previous_line = line
+            ref_index = ref_index + 1 if is_reference(line) else 0
     
-    # log removed original entries
-    for entry in original_entries_to_remove:
-        print(colored(f'Removed entry: \'{entry.msgid}\'', 'red'))
-
     # add new entries at the bottom
-    new_entries = set([en for en in exported_entry_by_msgid.values() if en not in merged_entries])
+    matched_original_entries_msgids = {en.msgid for en in matched_original_entries}
+    new_entries = [en for en in exported_entry_by_msgid.values() if occurrences_matching(en.occurrences, regex) and en.msgid not in matched_original_entries_msgids]
     if new_entries:
         with open(output_path, 'a', encoding='utf-8') as out_f:
             out_f.write('\n')
@@ -97,7 +94,6 @@ def merge_po(original_path, exported_path, output_path, regex, all_refs=False):
                 print(colored(f'Added entry:   \'{entry.msgid}\'', 'green'))
                 lines_added += str(entry).count('\n')
 
-    
     print(
         'Added ' + colored(f'{len(new_entries)} entries', 'green')
         + ', merged ' + colored(f'{merged_entries_count} entries', 'cyan')
@@ -107,10 +103,6 @@ def merge_po(original_path, exported_path, output_path, regex, all_refs=False):
         'Added ' + colored(f'{lines_added} line(s)', 'green')
         + ' and removed ' + colored(f'{lines_removed} line(s)', 'red')
     )
-
-    # warn about duplicates
-    for entry in duplicate_merged_entries:
-        print(colored(f'WARNING: duplicate merged entry: \'{entry.msgid}\'', 'yellow'))
 
 
 if __name__ == '__main__':
