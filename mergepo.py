@@ -1,7 +1,5 @@
 import argparse
 import re
-from operator import itemgetter, attrgetter
-import itertools
 
 import polib
 from termcolor import colored
@@ -106,7 +104,7 @@ def merge_po(original_path, exported_path, output_path, regex, all_refs=False):
         + ' and removed ' + colored(f'{lines_removed} line(s)', 'red')
     )
 
-    # warning about  duplicates
+    # warning about duplicates
     matched_original_entries_msgids = set()
     for entry in matched_original_entries:
         if entry.msgid in matched_original_entries_msgids:
