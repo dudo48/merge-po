@@ -21,9 +21,18 @@ def occurrences_matching(occurrences, regex):
 
 
 def merge_po(original_path, exported_path, output_path, regex, all_refs=False):
-    # compute new references and occurrences to remove
-    matched_original_entries = {en for en in polib.pofile(original_path) if occurrences_matching(en.occurrences, regex)}
     exported_entry_by_msgid = {en.msgid: en for en in polib.pofile(exported_path)}
+    matched_original_entries = set()
+    for original_entry in polib.pofile(original_path):
+        original_occurrences = occurrences_matching(original_entry.occurrences, regex)
+        exported_entry, exported_occurrences = exported_entry_by_msgid.get(original_entry.msgid, None), []
+        if exported_entry:
+            exported_occurrences = occurrences_matching(exported_entry.occurrences, regex)
+        # an original entry is matched if occurrences of its msgid entry are matched in original or exported file
+        if original_occurrences or exported_occurrences:
+            matched_original_entries.add(original_entry)
+
+    # compute new references and occurrences to remove
     new_references, occurrences_to_remove, entries_to_remove = {}, {}, set()
     for original_entry in matched_original_entries:
         if original_entry.msgid in exported_entry_by_msgid:
