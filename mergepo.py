@@ -3,8 +3,8 @@ import re
 from itertools import groupby
 
 import polib
-from termcolor import colored
 from pick import pick
+from termcolor import colored
 
 
 # checks if the given line is a reference gettext line
@@ -35,12 +35,12 @@ def find_matched_original_entries(original_path, exported_entry_by_msgid, regex)
     return matched_original_entries
 
 
-def merge_po(original_path, exported_path, output_path, regex, all_references=False, ignore_duplicates=False):
+def merge_po(original_path, exported_path, output_path, regex='.', all_references=False, ignore_duplicates=False):
     exported_entry_by_msgid = {en.msgid: en for en in polib.pofile(exported_path)}
     matched_original_entries = find_matched_original_entries(original_path, exported_entry_by_msgid, regex)
 
     # compute new references and occurrences to remove
-    new_occurrences, occurrences_to_remove, entries_to_remove = {}, {}, set()
+    new_occurrences, occurrences_to_remove, original_entries_not_in_exported = {}, {}, set()
     for original_entry in matched_original_entries:
         if original_entry.msgid in exported_entry_by_msgid:
             exported_entry = exported_entry_by_msgid[original_entry.msgid]
@@ -58,10 +58,10 @@ def merge_po(original_path, exported_path, output_path, regex, all_references=Fa
             occurrences_to_remove[original_entry] = set(not_in_exported)
         else:
             # remove entries with msgids not in exported
-            entries_to_remove.add(original_entry)
+            original_entries_not_in_exported.add(original_entry)
 
     # resolve duplicate msgids with choice
-    matched_original_entries_by_msgid = {k: list(v) for k, v in groupby(
+    matched_original_entries_by_msgid = {k: sorted(list(v), key=lambda en: en.msgstr) for k, v in groupby(
         sorted(matched_original_entries, key=lambda en: en.msgid), key=lambda en: en.msgid
     )}
     for msgid, entries in matched_original_entries_by_msgid.items():
@@ -69,7 +69,6 @@ def merge_po(original_path, exported_path, output_path, regex, all_references=Fa
             continue
 
         # sort so choices always have same order
-        entries.sort(key=lambda en: en.msgstr)
         entries_new_occurrences = {occ for en in entries for occ in new_occurrences[en]}
         entries_current_occurrences = {occ for en in entries for occ in en.occurrences}
         ambiguous_occurrences = entries_new_occurrences - entries_current_occurrences
@@ -80,7 +79,7 @@ def merge_po(original_path, exported_path, output_path, regex, all_references=Fa
         for occurrence in sorted(ambiguous_occurrences):
             _, i = pick(
                 [en.msgstr for en in entries],
-                f'Duplicate msgid found \'{msgid}\'\nChoose a msgstr for the below reference:'
+                f'Duplicate msgid found: \'{msgid}\'\nChoose a msgstr for the below reference:'
                 f'\n\n{occurrence_to_reference(occurrence)}',
                 indicator='>'
             )
@@ -90,21 +89,32 @@ def merge_po(original_path, exported_path, output_path, regex, all_references=Fa
     lines_added = lines_removed = merged_entries_count = 0
 
     # merge and remove existing entries
-    original_entry_by_line_num = {en.linenum: en for en in polib.pofile(original_path)}
     with open(output_path, 'w', encoding='utf-8') as out_f, open(original_path, 'r', encoding='utf-8') as orig_f:
         previous_line = ''
         line_num = ref_index = 0
-        original_entry = None
+        original_entry = previous_original_entry = None
+        original_entry_by_line_num = {en.linenum: en for en in polib.pofile(original_path)}
+        added_matched_original_entries = set()
         for line in orig_f:
             line_num += 1
             write_line = True
             original_entry = original_entry_by_line_num.get(line_num, original_entry)
 
-            # remove entry
-            if original_entry in entries_to_remove:
+            # keep track of every matched original entry once it is fully written to the result file
+            if previous_original_entry in matched_original_entries and previous_original_entry.linenum != original_entry.linenum:
+                added_matched_original_entries.add(previous_original_entry)
+
+            # remove duplicate entries
+            if original_entry in added_matched_original_entries:
                 write_line = False
                 if line_num in original_entry_by_line_num:
-                    print(colored(f'Removed entry: \'{original_entry.msgid}\'', 'red'))
+                    print(colored(f'Removed entry: \'{original_entry.msgid}\' (duplicate)', 'red'))
+
+            # remove entry entries not in exported
+            elif original_entry in original_entries_not_in_exported:
+                write_line = False
+                if line_num in original_entry_by_line_num:
+                    print(colored(f'Removed entry: \'{original_entry.msgid}\' (not in exported file)', 'red'))
 
             # remove reference
             elif occurrences_to_remove.get(original_entry, None) and is_reference(line):
@@ -124,8 +134,9 @@ def merge_po(original_path, exported_path, output_path, regex, all_references=Fa
                 out_f.write(line)
             else:
                 lines_removed += 1
-            previous_line = line
             ref_index = ref_index + 1 if is_reference(line) else 0
+            previous_line = line
+            previous_original_entry = original_entry
 
     # add new entries at the bottom
     matched_exported_entries = [en for en in exported_entry_by_msgid.values() if
@@ -143,7 +154,7 @@ def merge_po(original_path, exported_path, output_path, regex, all_references=Fa
     print(
         'Added ' + colored(f'{len(new_entries)} entries', 'green')
         + ', merged ' + colored(f'{merged_entries_count} entries', 'cyan')
-        + ' and removed ' + colored(f'{len(entries_to_remove)} entries', 'red')
+        + ' and removed ' + colored(f'{len(original_entries_not_in_exported)} entries', 'red')
     )
     print(
         'Added ' + colored(f'{lines_added} line(s)', 'green')
@@ -156,8 +167,7 @@ if __name__ == '__main__':
     parser.add_argument('-g', '--original-path', required=True, help='Original file path')
     parser.add_argument('-e', '--exported-path', required=True, help='Exported file path')
     parser.add_argument('-o', '--output-path', required=True, help='Output file path')
-    parser.add_argument('-r', '--regex', required=True,
-                        help='Match only entries that have occurrences matching this regex')
+    parser.add_argument('-r', '--regex', help='Match only entries that have occurrences matching this regex. default: all', default='.')
     parser.add_argument('-a', '--all-references', action='store_true',
                         help='Whether to add all different references present in '
                              'the exported file or add only those that match the'
