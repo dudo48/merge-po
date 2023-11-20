@@ -69,12 +69,13 @@ def merge_po(original_path, exported_path, output_path, regex='.', all_reference
             continue
 
         # sort so choices always have same order
-        entries_new_occurrences = {occ for en in entries for occ in new_occurrences[en]}
+        entries_new_occurrences = {occ for en in entries for occ in new_occurrences.get(en, [])}
         entries_current_occurrences = {occ for en in entries for occ in en.occurrences}
         ambiguous_occurrences = entries_new_occurrences - entries_current_occurrences
         for entry in entries:
             new_occurrences[entry] = []
         if ignore_duplicates:
+            print(colored(f'Ignored duplicate entry with msgid: \'{entries[0].msgid}\'', 'yellow'))
             continue
         for occurrence in sorted(ambiguous_occurrences):
             _, i = pick(
