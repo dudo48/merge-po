@@ -46,8 +46,7 @@ class POMergerEntry:
         self.is_matched = is_matched
 
         self.lines = []
-        self.added_occurrences = []
-        self.excluded_occurrences = set()
+        self.occurrences = set(entry.occurrences)
 
     def __str__(self, in_original_form=False):
         if in_original_form:
@@ -58,7 +57,7 @@ class POMergerEntry:
         for line in self.lines:
             add_line = True
             if is_reference(line):
-                add_line = self.entry.occurrences[reference_index] not in self.excluded_occurrences
+                add_line = self.entry.occurrences[reference_index] in self.occurrences
                 reference_index += 1
             elif is_line_after_references(line) and not were_added_occurrences_added:
                 for occurrence in self.added_occurrences:
@@ -79,16 +78,18 @@ class POMergerEntry:
             return self.__key() == other.__key()
         return NotImplemented
 
+    @property
+    def added_occurrences(self):
+        old_occurrences = set(self.entry.occurrences)
+        return sorted([o for o in self.occurrences if o not in old_occurrences])\
+
+    @property
+    def removed_occurrences(self):
+        return [o for o in self.entry.occurrences if o not in self.occurrences]
+
     def __key(self):
         return self.entry.msgid, self.entry.msgstr
-    
-    @property
-    def lines_added(self):
-        return len(self.added_occurrences)
-    
-    @property
-    def lines_removed(self):
-        return len([o for o in self.entry.occurrences if o in self.excluded_occurrences])
+
 
     def merge_occurrences(self, other, regex='.'):
         """
@@ -97,10 +98,8 @@ class POMergerEntry:
         :param regex:
         :return:
         """
-        occurrence_set = set(self.entry.occurrences)
-        for occurrence in filter_occurrences(other.entry.occurrences, regex):
-            if occurrence not in occurrence_set:
-                self.added_occurrences.append(occurrence)
+        filtered_other_occurrences = set(filter_occurrences(other.occurrences, regex))
+        self.occurrences = self.occurrences.union(filtered_other_occurrences)
 
     def match_occurrences(self, other, regex='.'):
         """
@@ -109,17 +108,12 @@ class POMergerEntry:
         :param regex:
         :return:
         """
-        # add new occurrences
-        occurrence_set = set(self.entry.occurrences)
-        for occurrence in filter_occurrences(other.entry.occurrences, regex):
-            if occurrence not in occurrence_set:
-                self.added_occurrences.append(occurrence)
+        filtered_other_occurrences = set(filter_occurrences(other.occurrences, regex))
+        filtered_self_occurrences = set(filter_occurrences(self.occurrences, regex))
 
-        # exclude occurrences
-        occurrence_set = set(other.entry.occurrences)
-        for occurrence in filter_occurrences(self.entry.occurrences, regex):
-            if occurrence not in occurrence_set:
-                self.excluded_occurrences.add(occurrence)
+        # add then remove
+        self.occurrences = self.occurrences.union(filtered_other_occurrences)
+        self.occurrences = self.occurrences - (filtered_self_occurrences - other.occurrences)
 
     def matches_regex(self, regex='.', match_empty=True):
         """
@@ -129,7 +123,7 @@ class POMergerEntry:
         :param match_empty:
         :return:
         """
-        occurrences = self.entry.occurrences + self.added_occurrences + list(self.excluded_occurrences)
+        occurrences = self.occurrences.union(self.entry.occurrences)
         return any(filter_occurrences(occurrences, regex)) or (match_empty and not self.entry.occurrences)
 
 
@@ -178,12 +172,9 @@ class POMerger:
 
     def correct_occurrences(self):
         # don't add non matched occurrences in exported
-        for exported_entry in self.exported_entries:
-            if not self.all_references:
-                included_occurrences = set(filter_occurrences(exported_entry.entry.occurrences, self.regex))
-                exported_entry.excluded_occurrences = {
-                    o for o in exported_entry.entry.occurrences if o not in included_occurrences
-                }
+        if not self.all_references:
+            for exported_entry in self.exported_entries:
+                exported_entry.occurrences = set(filter_occurrences(exported_entry.occurrences, self.regex))
         for original_entry in self.original_entries:
             exported_entry = self.exported_entries_by_msgid.get(original_entry.entry.msgid, [None])[0]
             if exported_entry:
@@ -224,10 +215,10 @@ class POMerger:
                     ambiguous_occurrences.append(occurrence)
                     excluded_occurrences.add(occurrence)
             for entry in entries:
-                entry.added_occurrences.clear()
+                entry.occurrences = set(entry.entry.occurrences)
             if self.ignore_duplicates:
                 if ambiguous_occurrences:
-                    print(colored(f'Ignored duplicate entries with msgid: \'{msgid}\'', 'yellow'))
+                    POMerger.log_warning(f'Ignored duplicate entries with msgid: \'{msgid}\'')
                 continue
             for occurrence in ambiguous_occurrences:
                 _, i = pick(
@@ -236,7 +227,7 @@ class POMerger:
                     f'\n\n{occurrence_to_reference(occurrence)}',
                     indicator='>'
                 )
-                entries[i].added_occurrences.append(occurrence)
+                entries[i].occurrences.add(occurrence)
 
     def parse_entries_lines(self, path, entries, set_preamble=False):
         """
@@ -292,7 +283,7 @@ class POMerger:
 
                 duplicate_entry = entry in added_entries
                 not_in_exported = entry.entry.msgid not in self.exported_entries_by_msgid
-                no_references = entry.excluded_occurrences >= set(entry.entry.occurrences + entry.added_occurrences)
+                no_references = len(entry.occurrences) == 0
                 if duplicate_entry or not_in_exported or no_references:
                     if duplicate_entry:
                         removal_reason = 'Duplicate entry'
@@ -308,7 +299,7 @@ class POMerger:
                 if add_entry:
                     output_file.write(entry.__str__())
                     added_entries.add(entry)
-                    lines_added, lines_removed = entry.lines_added, entry.lines_removed
+                    lines_added, lines_removed = len(entry.added_occurrences), len(entry.removed_occurrences)
                     if lines_added or lines_removed:
                         merged_count += 1
                         POMerger.log_merged(entry)
@@ -328,7 +319,11 @@ class POMerger:
             print('Original file is up-to-date with exported file')
         else:
             self.log_statistics(added_count, merged_count, removed_count)
-    
+
+    @staticmethod
+    def log_warning(warning):
+        print(colored(warning, 'yellow'))
+
     @staticmethod
     def log_unaffected(entry):
         print(f'{entry.entry.linenum}: {entry.entry.msgid}')
