@@ -54,11 +54,14 @@ class POMergerEntry:
         result = ''
         reference_index = 0
         were_added_occurrences_added = False
+        added_occurrences = set()
         for line in self.lines:
             add_line = True
             if is_reference(line):
-                add_line = self.entry.occurrences[reference_index] in self.occurrences
+                occurrence = self.entry.occurrences[reference_index]
+                add_line = occurrence in self.occurrences and occurrence not in added_occurrences
                 reference_index += 1
+                added_occurrences.add(occurrence)
             elif is_line_after_references(line) and not were_added_occurrences_added:
                 for occurrence in self.added_occurrences:
                     result += f'{occurrence_to_reference(occurrence)}\n'
@@ -85,7 +88,13 @@ class POMergerEntry:
 
     @property
     def removed_occurrences(self):
-        return [o for o in self.entry.occurrences if o not in self.occurrences]
+        added_occurrences = set()
+        removed_occurrences = []
+        for occurrence in self.entry.occurrences:
+            if occurrence not in self.occurrences or occurrence in added_occurrences:
+                removed_occurrences.append(occurrence)
+            added_occurrences.add(occurrence)
+        return removed_occurrences
 
     def __key(self):
         return self.entry.msgid, self.entry.msgstr
@@ -215,7 +224,7 @@ class POMerger:
                     ambiguous_occurrences.append(occurrence)
                     excluded_occurrences.add(occurrence)
             for entry in entries:
-                entry.occurrences = set(entry.entry.occurrences)
+                entry.occurrences = entry.occurrences.intersection(entry.entry.occurrences)
             if self.ignore_duplicates:
                 if ambiguous_occurrences:
                     POMerger.log_warning(f'Ignored duplicate entries with msgid: \'{msgid}\'')
