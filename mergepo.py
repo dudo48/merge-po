@@ -223,10 +223,10 @@ class POMerger:
         for path in self.external_paths:
             for external_entry in filter(lambda e: e.entry.msgid in self.matched_msgids, self.entries[path]):
                 regex = self.regex if not self.all_references else '.'
-                external_entry.occurrences = set(filter_occurrences(external_entry.occurrences, regex))
                 if external_entry in added_entries:
                     added_entries[external_entry].merge_occurrences(external_entry, regex)
                 else:
+                    external_entry.occurrences = set(filter_occurrences(external_entry.occurrences, regex))
                     self.external_entries.append(external_entry)
                     self.external_entries_by_msgid[external_entry.entry.msgid].append(external_entry)
                     added_entries[external_entry] = external_entry
@@ -237,9 +237,9 @@ class POMerger:
             self.matched_exported_msgids.add(msgid)
 
             regex = self.regex if not self.all_references else '.'
-            exported_entry.occurrences = set(filter_occurrences(exported_entry.occurrences, regex))
             matching_entries = self.base_entries_by_msgid[msgid] + self.external_entries_by_msgid[msgid]
             if not matching_entries:
+                exported_entry.occurrences = set(filter_occurrences(exported_entry.occurrences, regex))
                 self.exported_entries.append(exported_entry)
             elif len(matching_entries) == 1:
                 matching_entries[0].match_occurrences(exported_entry, regex)
@@ -292,12 +292,10 @@ class POMerger:
         external_entries, external_entries_by_msgid = [], defaultdict(list)
         for external_entry in self.external_entries:
             msgid = external_entry.entry.msgid
-            is_matched = msgid in self.matched_msgids
-            not_in_exported = is_matched and self.exported_path and msgid not in self.matched_exported_msgids
+            in_exported = not self.exported_path or msgid in self.matched_exported_msgids
             no_references = len(external_entry.occurrences) == 0
-            exclude = not_in_exported or no_references
 
-            if not exclude:
+            if in_exported and not no_references:
                 external_entries.append(external_entry)
                 external_entries_by_msgid[msgid].append(external_entry)
                 self.added_entries.add(external_entry)
@@ -307,13 +305,7 @@ class POMerger:
 
         exported_entries = []
         for exported_entry in self.exported_entries:
-            msgid = exported_entry.entry.msgid
-            is_matched = msgid in self.matched_msgids
-            not_in_exported = is_matched and self.exported_path and msgid not in self.matched_exported_msgids
-            no_references = len(exported_entry.occurrences) == 0
-            exclude = not_in_exported or no_references
-
-            if not exclude:
+            if len(exported_entry.occurrences):
                 exported_entries.append(exported_entry)
                 self.added_entries.add(exported_entry)
                 self.lines_added += exported_entry.__str__().count('\n')
