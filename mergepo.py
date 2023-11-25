@@ -162,18 +162,17 @@ class POMerger:
         self.base_entries = []
         self.external_entries = []
         self.exported_entries = []
-        self.output_entries = []
 
         self.matched_msgids = set()
-        self.exported_msgids = set()
+        self.matched_exported_msgids = set()
         self.base_entries_by_msgid = defaultdict(list)
         self.external_entries_by_msgid = defaultdict(list)
 
         self.parse_entries()
 
-        self.compute_base_external_entries()
-        self.compute_exported_entries()
-        self.compute_output_entries()
+        self.merge_base_external_entries()
+        self.match_exported_entries()
+        self.filter_output_entries()
 
     @property
     def paths(self):
@@ -209,7 +208,7 @@ class POMerger:
                         self.preamble += line
                     linenum += 1
 
-    def compute_base_external_entries(self):
+    def merge_base_external_entries(self):
         added_entries = {}
         for base_entry in self.entries[self.base_path]:
             if base_entry in added_entries:
@@ -232,10 +231,10 @@ class POMerger:
                     self.external_entries_by_msgid[external_entry.entry.msgid].append(external_entry)
                     added_entries[external_entry] = external_entry
 
-    def compute_exported_entries(self):
+    def match_exported_entries(self):
         for exported_entry in filter(lambda e: e.entry.msgid in self.matched_msgids, self.entries[self.exported_path]):
             msgid = exported_entry.entry.msgid
-            self.exported_msgids.add(msgid)
+            self.matched_exported_msgids.add(msgid)
 
             regex = self.regex if not self.all_references else '.'
             exported_entry.occurrences = set(filter_occurrences(exported_entry.occurrences, regex))
@@ -264,45 +263,74 @@ class POMerger:
                     else:
                         POMerger.resolve_ambiguous_occurrences(ambiguous_occurrences, matching_entries)
 
-    def compute_output_entries(self):
-        for merger_entry in self.base_entries + self.external_entries + self.exported_entries:
-            msgid = merger_entry.entry.msgid
+    def filter_output_entries(self):
+        base_entries, base_entries_by_msgid = [], defaultdict(list)
+        for base_entry in self.base_entries:
+            msgid = base_entry.entry.msgid
             is_matched = msgid in self.matched_msgids
-            entry_in_base = merger_entry.source_path == self.base_path
-            removal_reason = False
-            if is_matched and self.exported_path and msgid not in self.exported_msgids:
+            removal_reason = ''
+            if is_matched and self.exported_path and msgid not in self.matched_exported_msgids:
                 removal_reason = 'Not in exported file'
-            elif len(merger_entry.occurrences) == 0:
+            elif len(base_entry.occurrences) == 0:
                 removal_reason = 'No references'
 
-            if entry_in_base:
-                if removal_reason:
-                    self.removed_entries.append((merger_entry, removal_reason))
-                    self.lines_removed += len(merger_entry.lines)
-                else:
-                    self.output_entries.append(merger_entry)
-                    lines_added = len(merger_entry.added_occurrences)
-                    lines_removed = len(merger_entry.removed_occurrences)
-                    if lines_added or lines_removed:
-                        self.merged_entries.add(merger_entry)
-                        self.lines_added += lines_added
-                        self.lines_removed += lines_removed
-            elif not removal_reason:
-                self.output_entries.append(merger_entry)
-                self.added_entries.add(merger_entry)
-                self.lines_added += merger_entry.__str__().count('\n')
+            if removal_reason:
+                self.removed_entries.append((base_entry, removal_reason))
+                self.lines_removed += len(base_entry.lines)
+            else:
+                base_entries.append(base_entry)
+                base_entries_by_msgid[msgid].append(base_entry)
+                lines_added = len(base_entry.added_occurrences)
+                lines_removed = len(base_entry.removed_occurrences)
+                if lines_added or lines_removed:
+                    self.merged_entries.add(base_entry)
+                    self.lines_added += lines_added
+                    self.lines_removed += lines_removed
+        self.base_entries = base_entries
+        self.base_entries_by_msgid = base_entries_by_msgid
+
+        external_entries, external_entries_by_msgid = [], defaultdict(list)
+        for external_entry in self.external_entries:
+            msgid = external_entry.entry.msgid
+            is_matched = msgid in self.matched_msgids
+            not_in_exported = is_matched and self.exported_path and msgid not in self.matched_exported_msgids
+            no_references = len(external_entry.occurrences) == 0
+            exclude = not_in_exported or no_references
+
+            if not exclude:
+                external_entries.append(external_entry)
+                external_entries_by_msgid[msgid].append(external_entry)
+                self.added_entries.add(external_entry)
+                self.lines_added += external_entry.__str__().count('\n')
+        self.external_entries = external_entries
+        self.external_entries_by_msgid = external_entries_by_msgid
+
+        exported_entries = []
+        for exported_entry in self.exported_entries:
+            msgid = exported_entry.entry.msgid
+            is_matched = msgid in self.matched_msgids
+            not_in_exported = is_matched and self.exported_path and msgid not in self.matched_exported_msgids
+            no_references = len(exported_entry.occurrences) == 0
+            exclude = not_in_exported or no_references
+
+            if not exclude:
+                exported_entries.append(exported_entry)
+                self.added_entries.add(exported_entry)
+                self.lines_added += exported_entry.__str__().count('\n')
+        self.exported_entries = exported_entries
 
     def run(self):
-        for entry, removal_reason in sorted(self.removed_entries):
+        for entry, removal_reason in sorted(self.removed_entries, key=lambda r: r[0].entry.linenum):
             POMerger.log_removed(entry, removal_reason)
 
+        output_entries = self.base_entries + self.external_entries + self.exported_entries
         with open(self.output_path, 'w', encoding='utf-8') as output_file:
             output_file.write(self.preamble)
-            for i, entry in enumerate(self.output_entries):
+            for i, entry in enumerate(output_entries):
                 entry_string = entry.__str__()
 
                 # fix entries from other files than base getting concatenated on same line
-                if i == len(self.output_entries) - 1:
+                if i == len(output_entries) - 1:
                     entry_string = entry_string.rstrip('\n')
                 elif not entry_string.endswith('\n\n'):
                     entry_string += '\n\n'
