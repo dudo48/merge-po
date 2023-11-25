@@ -1,0 +1,4 @@
+pick==2.2.0
+polib==1.2.0
+termcolor==2.3.0
+windows-curses==2.3.2
