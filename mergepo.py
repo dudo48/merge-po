@@ -139,7 +139,7 @@ class POMergerEntry:
 
 
 class POMerger:
-    def __init__(self, base_path, external_paths, output_path, regex, exported_path, all_references, ignore_duplicates, verbose_log):
+    def __init__(self, base_path, external_paths, output_path, regex, exported_path, all_references, ignore_duplicates, verbose_log, no_merge_suggestions):
         self.base_path = base_path
         self.external_paths = external_paths
         self.exported_path = exported_path
@@ -148,6 +148,7 @@ class POMerger:
         self.all_references = all_references
         self.ignore_duplicates = ignore_duplicates
         self.verbose_log = verbose_log
+        self.no_merge_suggestions = no_merge_suggestions
 
         self.entries = defaultdict(list)
         self.matched_msgids = set()
@@ -156,12 +157,18 @@ class POMerger:
         self.preamble = ''
         self.added_entries, self.merged_entries, self.removed_entries = set(), set(), []
         self.lines_added = self.lines_removed = 0
+        self.warnings = []
 
         self.parse_entries()
         self.add_base_entries()
         self.add_external_entries()
+
+        if not self.no_merge_suggestions:
+            self.suggest_merge_same_msgid()
+
         self.add_exported_entries()
         self.filter_output_entries()
+        self.add_extra_warnings()
 
     def parse_entries(self):
         """
@@ -232,9 +239,9 @@ class POMerger:
             elif len(matching_entries) == 1:
                 matching_entries[0].match_occurrences(exported_entry, regex)
             else:
-                self.resolve_multiple_matching_entries(exported_entry, matching_entries, regex)
+                self.resolve_ambiguous_occurrences(exported_entry, matching_entries, regex)
 
-    def resolve_multiple_matching_entries(self, matcher_entry, matching_entries, regex):
+    def resolve_ambiguous_occurrences(self, matcher_entry, matching_entries, regex):
         """
         If there are occurrences to add and there exists two or more entries in the original file with same msgid
         then the ambiguity must be resolved or ignored (do not add new occurrences) if --ignore-duplicates flag is
@@ -253,16 +260,53 @@ class POMerger:
                 ambiguous_occurrences = ambiguous_occurrences.intersection(added_occurrences)
 
         if self.ignore_duplicates and ambiguous_occurrences:
-            POMerger.log_warning(f'Ignored entries with duplicate msgids: \'{matcher_entry.entry.msgid}\'')
+            self.warnings.append(f'Ignored ambiguous references for entries with duplicate msgids: \'{matcher_entry.entry.msgid}\'')
         else:
             for occurrence in sorted(ambiguous_occurrences):
                 _, i = pick(
                     [f'{i + 1}) {e.entry.msgstr}' for i, e in enumerate(matching_entries)],
-                    f'Duplicate msgid found: \'{matcher_entry.entry.msgid}\'\nChoose a msgstr for the below reference:'
+                    f'REFERENCE AMBIGUITY\n\nDuplicate msgid found: \'{matcher_entry.entry.msgid}\'\n'
+                    f'Choose a msgstr for the below reference:'
                     f'\n\n{occurrence_to_reference(occurrence)}',
                     indicator='>'
                 )
                 matching_entries[i].occurrences.add(occurrence)
+
+    def suggest_merge_same_msgid(self):
+        """
+        Suggest to merge an entry's occurrences with another entry and remove it if they have the same msgid
+        """
+        output_entries_by_msgid = defaultdict(list)
+        for output_entry in self.output_entries:
+            output_entries_by_msgid[output_entry.entry.msgid].append(output_entry)
+
+        removed_entries = set()
+        for msgid, entries in {
+            m: e for m, e in output_entries_by_msgid.items() if len(e) > 1 and m in self.matched_msgids
+        }.items():
+            for merger_entry in reversed(entries):
+                msgstrs = [
+                    f'{i + 1}) {e.entry.msgstr}' for i, e in enumerate(
+                        [e for e in entries if e not in removed_entries and e != merger_entry]
+                    )
+                ]
+                if not msgstrs:
+                    break
+
+                _, i = pick(
+                    ['KEEP'] + msgstrs,
+                    f'ENTRY MERGE SUGGESTION\n\nDuplicate msgid found: \'{merger_entry.entry.msgid}\'\n'
+                    f'Do you want to merge the entry with the below msgstr with one of these or keep it?:'
+                    f'\n\n{merger_entry.entry.msgstr}',
+                    indicator='>'
+                )
+                if i != 0:
+                    entries[i - 1].merge_occurrences(merger_entry)
+                    removed_entries.add(merger_entry)
+                    if merger_entry.source_path == self.base_path:
+                        self.lines_removed += len(merger_entry.lines)
+                        self.removed_entries.append((merger_entry, 'Merged with another duplicate msgid entry'))
+        self.output_entries = [e for e in self.output_entries if e not in removed_entries]
 
     def filter_output_entries(self):
         matched_exported_msgids = {
@@ -320,6 +364,8 @@ class POMerger:
                 elif self.verbose_log:
                     POMerger.log_unaffected(entry)
 
+        for warning in self.warnings:
+            POMerger.log_warning(warning)
         if self.lines_added == self.lines_removed == 0:
             print('No changes done, original file is identical to output file')
         else:
@@ -338,6 +384,17 @@ class POMerger:
         print()
         print('Added {}, merged {} and removed {}'.format(*entries))
         print('Added {} and removed {}'.format(*lines))
+
+    def add_extra_warnings(self):
+        output_entries_by_msgstr = defaultdict(list)
+        for output_entry in self.output_entries:
+            output_entries_by_msgstr[output_entry.entry.msgstr].append(output_entry)
+        for msgstr, entries in output_entries_by_msgstr.items():
+            if len(entries) > 1 and any(e.entry.msgid in self.matched_msgids for e in entries):
+                msgids = ', '.join([f'\'{e.entry.msgid}\'' for e in entries])
+                self.warnings.append(
+                    f'Entries with the following msgids have the same msgstr \'{msgstr}\': {msgids}'
+                )
 
     @staticmethod
     def log_added(entry, is_exported):
@@ -382,6 +439,9 @@ if __name__ == '__main__':
                              ' to entries with duplicate msgids')
     parser.add_argument('-v', '--verbose-log', action='store_true',
                         help='If this flag is passed then extra information is logged to the console')
+    parser.add_argument('-n', '--no-merge-suggestions', action='store_true',
+                        help='If this flag is passed then no suggestions for merging entries are shown'
+                             ' (all entries are kept)')
 
     po_merger = POMerger(**vars(parser.parse_args()))
     po_merger.run()
