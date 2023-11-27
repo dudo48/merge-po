@@ -1,3 +1,8 @@
+"""
+The happiness of most people is not ruined by great catastrophes or fatal errors,
+but by the repetition of slowly destructive little things.
+    - Ernest Dimnet
+"""
 import argparse
 import re
 from collections import defaultdict
