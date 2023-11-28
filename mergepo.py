@@ -173,6 +173,7 @@ class POMerger:
 
         self.add_exported_entries()
         self.filter_output_entries()
+        self.calculate_statistics()
         self.add_extra_warnings()
 
     def parse_entries(self):
@@ -213,7 +214,6 @@ class POMerger:
             if base_entry in added_entries:
                 added_entries[base_entry].merge_occurrences(base_entry)
                 self.removed_entries.append((base_entry, 'Duplicate entry'))
-                self.lines_removed += len(base_entry.lines)
             else:
                 self.output_entries.append(base_entry)
                 added_entries[base_entry] = base_entry
@@ -309,7 +309,6 @@ class POMerger:
                     entries[i - 1].merge_occurrences(merger_entry)
                     removed_entries.add(merger_entry)
                     if merger_entry.source_path == self.base_path:
-                        self.lines_removed += len(merger_entry.lines)
                         self.removed_entries.append((merger_entry, 'Merged with another duplicate msgid entry'))
         self.output_entries = [e for e in self.output_entries if e not in removed_entries]
 
@@ -331,24 +330,40 @@ class POMerger:
             if is_base_entry:
                 if removal_reason:
                     self.removed_entries.append((output_entry, removal_reason))
-                    self.lines_removed += len(output_entry.lines)
                 else:
                     output_entries.append(output_entry)
-                    lines_added = len(output_entry.added_occurrences)
-                    lines_removed = len(output_entry.removed_occurrences)
-                    self.lines_added += lines_added
-                    self.lines_removed += lines_removed
-                    if lines_added or lines_removed:
-                        self.merged_entries.add(output_entry)
             elif not removal_reason:
                 output_entries.append(output_entry)
-                self.added_entries.add(output_entry)
-                self.lines_added += output_entry.__str__().count('\n')
         self.output_entries = output_entries
 
+    def calculate_statistics(self):
+        for merger_entry, _ in self.removed_entries:
+            self.lines_removed += len(merger_entry.lines)
+
+        for output_entry in self.output_entries:
+            if output_entry.source_path == self.base_path:
+                lines_added = len(output_entry.added_occurrences)
+                lines_removed = len(output_entry.removed_occurrences)
+                self.lines_added += lines_added
+                self.lines_removed += lines_removed
+                if lines_added or lines_removed:
+                    self.merged_entries.add(output_entry)
+            else:
+                self.added_entries.add(output_entry)
+                self.lines_added += output_entry.__str__().count('\n')
+
+    def add_extra_warnings(self):
+        output_entries_by_msgstr = defaultdict(list)
+        for output_entry in self.output_entries:
+            output_entries_by_msgstr[output_entry.entry.msgstr].append(output_entry)
+        for msgstr, entries in output_entries_by_msgstr.items():
+            if len(entries) > 1 and any(e.entry.msgid in self.matched_msgids for e in entries):
+                msgids = ', '.join([f'\'{e.entry.msgid}\'' for e in entries])
+                self.warnings.append(f'Entries with the following msgids have the same msgstr \'{msgstr}\': {msgids}')
+
     def run(self):
-        for entry, removal_reason in sorted(self.removed_entries, key=lambda r: r[0].entry.linenum):
-            POMerger.log_removed(entry, removal_reason)
+        for merger_entry, removal_reason in sorted(self.removed_entries, key=lambda r: r[0].entry.linenum):
+            POMerger.log_removed(merger_entry, removal_reason)
 
         with open(self.output_path, 'w', encoding='utf-8') as output_file:
             output_file.write(self.preamble)
@@ -389,17 +404,6 @@ class POMerger:
         print()
         print('Added {}, merged {} and removed {}'.format(*entries))
         print('Added {} and removed {}'.format(*lines))
-
-    def add_extra_warnings(self):
-        output_entries_by_msgstr = defaultdict(list)
-        for output_entry in self.output_entries:
-            output_entries_by_msgstr[output_entry.entry.msgstr].append(output_entry)
-        for msgstr, entries in output_entries_by_msgstr.items():
-            if len(entries) > 1 and any(e.entry.msgid in self.matched_msgids for e in entries):
-                msgids = ', '.join([f'\'{e.entry.msgid}\'' for e in entries])
-                self.warnings.append(
-                    f'Entries with the following msgids have the same msgstr \'{msgstr}\': {msgids}'
-                )
 
     @staticmethod
     def log_added(entry, is_exported):
