@@ -167,12 +167,15 @@ class POMerger:
         self.parse_entries()
         self.add_base_entries()
         self.add_external_entries()
+        self.add_exported_entries()
+
+        if self.exported_path:
+            self.filter_not_in_exported()
 
         if not self.no_merge_suggestions:
             self.suggest_merge_same_msgid()
 
-        self.add_exported_entries()
-        self.filter_output_entries()
+        self.filter_no_references()
         self.calculate_statistics()
         self.add_extra_warnings()
 
@@ -312,28 +315,37 @@ class POMerger:
                         self.removed_entries.append((merger_entry, 'Merged with another duplicate msgid entry'))
         self.output_entries = [e for e in self.output_entries if e not in removed_entries]
 
-    def filter_output_entries(self):
+    def filter_not_in_exported(self):
         matched_exported_msgids = {
-            e.entry.msgid for e in self.entries.get(self.exported_path, []) if e.entry.msgid in self.matched_msgids
+            e.entry.msgid for e in self.entries[self.exported_path] if e.entry.msgid in self.matched_msgids
         }
         output_entries = []
         for output_entry in self.output_entries:
             msgid = output_entry.entry.msgid
             is_base_entry = output_entry.source_path == self.base_path
             is_matched = msgid in self.matched_msgids
-            removal_reason = False
-            if (is_matched or not is_base_entry) and self.exported_path and msgid not in matched_exported_msgids:
-                removal_reason = 'Not in exported file'
-            elif len(output_entry.occurrences) == 0:
-                removal_reason = 'No references'
+            not_in_exported = (is_matched or not is_base_entry) and msgid not in matched_exported_msgids
 
-            if is_base_entry:
-                if removal_reason:
-                    self.removed_entries.append((output_entry, removal_reason))
-                else:
-                    output_entries.append(output_entry)
-            elif not removal_reason:
+            if not_in_exported:
+                if is_base_entry:
+                    self.removed_entries.append((output_entry, 'Not in exported file'))
+            else:
                 output_entries.append(output_entry)
+
+        self.output_entries = output_entries
+
+    def filter_no_references(self):
+        output_entries = []
+        for output_entry in self.output_entries:
+            is_base_entry = output_entry.source_path == self.base_path
+            no_references = len(output_entry.occurrences) == 0
+
+            if no_references:
+                if is_base_entry:
+                    self.removed_entries.append((output_entry, 'No references'))
+            else:
+                output_entries.append(output_entry)
+
         self.output_entries = output_entries
 
     def calculate_statistics(self):
