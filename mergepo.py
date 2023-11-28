@@ -287,32 +287,37 @@ class POMerger:
         output_entries_by_msgid = defaultdict(list)
         for output_entry in self.output_entries:
             output_entries_by_msgid[output_entry.entry.msgid].append(output_entry)
+        output_entries_by_msgid = {
+            m: e for m, e in output_entries_by_msgid.items() if len(e) > 1 and m in self.matched_msgids
+        }
 
         removed_entries = set()
-        for msgid, entries in {
-            m: e for m, e in output_entries_by_msgid.items() if len(e) > 1 and m in self.matched_msgids
-        }.items():
-            for merger_entry in reversed(entries):
-                msgstrs = [
-                    f'{i + 1}) {e.entry.msgstr}' for i, e in enumerate(
-                        [e for e in entries if e not in removed_entries and e != merger_entry]
-                    )
-                ]
-                if not msgstrs:
+        for msgid, entries in output_entries_by_msgid.items():
+            remaining_entries = [e for e in entries]
+            while len(remaining_entries) > 1:
+                selected = pick(
+                    [f'{e.entry.msgstr}' for e in remaining_entries],
+                    f'ENTRY MERGE SUGGESTION\n\nThe entries with the following msgstrs have the same msgid:\n\n'
+                    f'\'{msgid}\'\n\nDo you want to merge any of them? Select the ones you want to be '
+                    f'merged and removed\nand then select the entry to merge into LAST\n'
+                    f'(press SPACE to mark, ENTER to continue/skip)',
+                    indicator='>',
+                    multiselect=True,
+                )
+                selected_indices = [i for _, i in selected]
+                if not selected_indices:
                     break
 
-                _, i = pick(
-                    ['KEEP'] + msgstrs,
-                    f'ENTRY MERGE SUGGESTION\n\nDuplicate msgid found: \'{merger_entry.entry.msgid}\'\n'
-                    f'Do you want to merge the entry with the below msgstr with one of these or keep it?:'
-                    f'\n\n{merger_entry.entry.msgstr}',
-                    indicator='>'
-                )
-                if i != 0:
-                    entries[i - 1].merge_occurrences(merger_entry)
+                merge_into_entry = remaining_entries[selected_indices[-1]]
+                for i in selected_indices[:-1]:
+                    merger_entry = remaining_entries[i]
+                    merge_into_entry.merge_occurrences(merger_entry)
                     removed_entries.add(merger_entry)
                     if merger_entry.source_path == self.base_path:
                         self.removed_entries.append((merger_entry, 'Merged with another duplicate msgid entry'))
+
+                remaining_entries = [e for e in entries if e not in removed_entries]
+
         self.output_entries = [e for e in self.output_entries if e not in removed_entries]
 
     def filter_not_in_exported(self):
