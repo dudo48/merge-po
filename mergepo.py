@@ -53,26 +53,29 @@ class POMergerEntry:
         self.lines = []
         self.occurrences = set(entry.occurrences)
 
-    def __str__(self, in_original_form=False):
-        if in_original_form:
-            return ''.join(self.lines)
+    def __str__(self, sort_references=False):
         result = ''
         reference_index = 0
-        were_added_occurrences_added = False
+        were_references_added = False
+        references_lines = []
         added_occurrences = set()
         for line in self.lines:
-            add_line = True
             if is_reference(line):
                 occurrence = self.entry.occurrences[reference_index]
-                add_line = occurrence in self.occurrences and occurrence not in added_occurrences
+                if occurrence in self.occurrences and occurrence not in added_occurrences:
+                    references_lines.append(line)
                 reference_index += 1
                 added_occurrences.add(occurrence)
-            elif is_line_after_references(line) and not were_added_occurrences_added:
+            elif is_line_after_references(line) and not were_references_added:
                 for occurrence in self.added_occurrences:
-                    result += f'{occurrence_to_reference(occurrence)}\n'
-                were_added_occurrences_added = True
-            if add_line:
+                    references_lines.append(f'{occurrence_to_reference(occurrence)}\n')
+                if sort_references:
+                    references_lines.sort()
+                result += ''.join(references_lines)
+                were_references_added = True
+            if not is_reference(line):
                 result += line
+
         return result
 
     def __repr__(self):
@@ -155,6 +158,8 @@ class POMerger:
         self.ignore_duplicates = kwargs.get('ignore_duplicates', False)
         self.verbose_log = kwargs.get('verbose_log', False)
         self.no_merge_suggestions = kwargs.get('no_merge_suggestions', False)
+        self.sort_entries = kwargs.get('sort_entries', False)
+        self.sort_references = kwargs.get('sort_references', False)
 
         self.entries = defaultdict(list)
         self.matched_msgids = set()
@@ -179,6 +184,9 @@ class POMerger:
         self.filter_no_references()
         self.calculate_statistics()
         self.add_extra_warnings()
+
+        if self.sort_entries:
+            self.output_entries.sort()
 
     def parse_entries(self):
         """
@@ -384,7 +392,7 @@ class POMerger:
         with open(self.output_path, 'w', encoding='utf-8') as output_file:
             output_file.write(self.preamble)
             for i, entry in enumerate(self.output_entries):
-                entry_string = entry.__str__()
+                entry_string = entry.__str__(sort_references=self.sort_references)
 
                 # fix entries from other files than base getting concatenated on same line
                 if i == len(self.output_entries) - 1:
@@ -468,6 +476,11 @@ if __name__ == '__main__':
     parser.add_argument('-n', '--no-merge-suggestions', action='store_true',
                         help='If this flag is passed then no suggestions for merging entries are shown'
                              ' (all entries are kept)')
+    parser.add_argument('-S', '--sort-entries', action='store_true',
+                        help='If this flag is passed then the entries are sorted in the output file according'
+                             ' to msgid and msgstr')
+    parser.add_argument('-s', '--sort-references', action='store_true',
+                        help='If this flag is passed then the references of each entry are sorted in the output file')
 
     po_merger = POMerger(**vars(parser.parse_args()))
     po_merger.run()
