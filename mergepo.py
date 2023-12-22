@@ -173,13 +173,16 @@ class POMerger:
         self.parse_entries()
         self.add_base_entries()
         self.add_external_entries()
-        self.add_exported_entries()
 
         if self.exported_path:
+            # filter first to prevent resolving ambiguity for entries that are not in the exported file
             self.filter_not_in_exported()
 
         if not self.no_merge_suggestions:
             self.suggest_merge_same_msgid()
+
+        if self.exported_path:
+            self.add_exported_entries()
 
         self.filter_no_references()
         self.calculate_statistics()
