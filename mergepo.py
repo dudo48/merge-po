@@ -144,16 +144,17 @@ class POMergerEntry:
 
 
 class POMerger:
-    def __init__(self, base_path, external_paths, output_path, regex, exported_path, all_references, ignore_duplicates, verbose_log, no_merge_suggestions):
+    def __init__(self, base_path, output_path, **kwargs):
         self.base_path = base_path
-        self.external_paths = external_paths
-        self.exported_path = exported_path
         self.output_path = output_path
-        self.regex = regex
-        self.all_references = all_references
-        self.ignore_duplicates = ignore_duplicates
-        self.verbose_log = verbose_log
-        self.no_merge_suggestions = no_merge_suggestions
+
+        self.external_paths = kwargs.get('external_paths', [])
+        self.exported_path = kwargs.get('exported_path', None)
+        self.regex = kwargs.get('regex', '.')
+        self.all_references = kwargs.get('all_references', False)
+        self.ignore_duplicates = kwargs.get('ignore_duplicates', False)
+        self.verbose_log = kwargs.get('verbose_log', False)
+        self.no_merge_suggestions = kwargs.get('no_merge_suggestions', False)
 
         self.entries = defaultdict(list)
         self.matched_msgids = set()
@@ -251,9 +252,7 @@ class POMerger:
 
     def resolve_ambiguous_occurrences(self, matcher_entry, matching_entries, regex):
         """
-        If there are occurrences to add and there exists two or more entries in the original file with same msgid
-        then the ambiguity must be resolved or ignored (do not add new occurrences) if --ignore-duplicates flag is
-        passed.
+        Match an entry's occurrences with a list of other entries (give choice where to add each new occurrence)
         """
         ambiguous_occurrences = None
         for matching_entry in matching_entries:
@@ -268,17 +267,18 @@ class POMerger:
                 ambiguous_occurrences = ambiguous_occurrences.intersection(added_occurrences)
 
         if self.ignore_duplicates and ambiguous_occurrences:
-            self.warnings.append(f'Ignored ambiguous references for entries with duplicate msgids: \'{matcher_entry.entry.msgid}\'')
+            self.warnings.append(
+                f'Ignored ambiguous references for entries with duplicate msgids: \'{matcher_entry.entry.msgid}\'')
         else:
-            for occurrence in sorted(ambiguous_occurrences):
-                _, i = pick(
-                    [f'{i + 1}) {e.entry.msgstr}' for i, e in enumerate(matching_entries)],
-                    f'REFERENCE AMBIGUITY\n\nDuplicate msgid found: \'{matcher_entry.entry.msgid}\'\n'
-                    f'Choose a msgstr for the below reference:'
+            for i, occurrence in enumerate(sorted(ambiguous_occurrences)):
+                _, j = pick(
+                    [e.entry.msgstr for e in matching_entries],
+                    f'REFERENCE AMBIGUITY ({i + 1} of {len(ambiguous_occurrences)})\n\nDuplicate msgid found:'
+                    f' \'{matcher_entry.entry.msgid}\'\nChoose a msgstr for the below reference:'
                     f'\n\n{occurrence_to_reference(occurrence)}',
-                    indicator='>'
+                    indicator='=>'
                 )
-                matching_entries[i].occurrences.add(occurrence)
+                matching_entries[j].occurrences.add(occurrence)
 
     def suggest_merge_same_msgid(self):
         """
@@ -292,25 +292,24 @@ class POMerger:
         }
 
         removed_entries = set()
-        for msgid, entries in output_entries_by_msgid.items():
+        for i, (msgid, entries) in enumerate(output_entries_by_msgid.items()):
             remaining_entries = [e for e in entries]
             while len(remaining_entries) > 1:
                 selected = pick(
                     [f'{e.entry.msgstr}' for e in remaining_entries],
-                    f'ENTRY MERGE SUGGESTION\n\nThe entries with the following msgstrs have the same msgid:\n\n'
-                    f'\'{msgid}\'\n\nDo you want to merge any of them? Select the ones you want to be '
-                    f'merged and removed\nand then select the entry to merge into LAST\n'
-                    f'(press SPACE to mark, ENTER to continue/skip)',
-                    indicator='>',
-                    multiselect=True,
+                    f'ENTRY MERGE SUGGESTION ({i + 1} of {len(output_entries_by_msgid)})\n\nThe entries with'
+                    f' the following msgstrs have the same msgid:\n\n\'{msgid}\'\n\nDo you want to merge any of them?'
+                    f' Select the ones you want to be merged and removed and then select the entry to merge into LAST'
+                    f'\n(press SPACE to mark, ENTER to continue/skip)',
+                    indicator='=>', multiselect=True,
                 )
-                selected_indices = [i for _, i in selected]
+                selected_indices = [j for _, j in selected]
                 if not selected_indices:
                     break
 
                 merge_into_entry = remaining_entries[selected_indices[-1]]
-                for i in selected_indices[:-1]:
-                    merger_entry = remaining_entries[i]
+                for j in selected_indices[:-1]:
+                    merger_entry = remaining_entries[j]
                     merge_into_entry.merge_occurrences(merger_entry)
                     removed_entries.add(merger_entry)
                     if merger_entry.source_path == self.base_path:
@@ -451,7 +450,8 @@ class POMerger:
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-b', '--base-path', required=True, help='Base file path')
-    parser.add_argument('-m', '--external-paths', nargs='+', help='Paths for external files to merge into the base file', default=[])
+    parser.add_argument('-m', '--external-paths', nargs='+', help='Paths for external files to merge into the base',
+                        default=[])
     parser.add_argument('-e', '--exported-path', help='Exported file path')
     parser.add_argument('-o', '--output-path', required=True, help='Output file path')
     parser.add_argument('-r', '--regex',

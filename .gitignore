@@ -155,3 +155,5 @@ cython_debug/
 .idea
 
 run.sh
+
+wishlist.txt
