@@ -389,9 +389,8 @@ class POMerger:
                 self.warnings.append(f'Entries with the following msgids have the same msgstr \'{msgstr}\': {msgids}')
 
     def run(self):
-        for merger_entry, removal_reason in sorted(self.removed_entries, key=lambda r: r[0].entry.linenum):
-            POMerger.log_removed(merger_entry, removal_reason)
-
+        for merger_entry, removal_reason in self.removed_entries:
+            self.log_entry(merger_entry, removal_reason)
         with open(self.output_path, 'w', encoding='utf-8') as output_file:
             output_file.write(self.preamble)
             for i, entry in enumerate(self.output_entries):
@@ -404,19 +403,50 @@ class POMerger:
                     entry_string += '\n\n'
                 output_file.write(entry_string)
 
-                if entry in self.merged_entries:
-                    POMerger.log_merged(entry)
-                elif entry in self.added_entries:
-                    POMerger.log_added(entry, entry.source_path == self.exported_path)
-                elif self.verbose_log:
-                    POMerger.log_unaffected(entry)
+                self.log_entry(entry)
 
         for warning in self.warnings:
-            POMerger.log_warning(warning)
+            print(colored(warning, 'yellow'))
         if self.lines_added == self.lines_removed == 0:
             print('No changes done, original file is identical to output file')
         else:
             self.log_statistics()
+
+    def log_entry(self, merger_entry, removal_reason=None):
+        state = 'Unaffected'
+        linenum = str(merger_entry.entry.linenum) if merger_entry.source_path == self.base_path else 'NEW'
+        msgid = colored(merger_entry.entry.msgid, 'light_grey')
+        suffix = ''
+        log_entry = True
+
+        if merger_entry.source_path == self.base_path:
+            if removal_reason:
+                state = colored('Removed', 'red')
+                linenum = colored(linenum, 'red')
+                suffix = f' ({colored(removal_reason, "red")})'
+            elif merger_entry in self.merged_entries:
+                state = colored('Modified', 'cyan')
+                linenum = colored(linenum, 'cyan')
+
+                added = colored(f'+{len(merger_entry.added_occurrences)}', 'green')
+                removed = colored(f'-{len(merger_entry.removed_occurrences)}', 'red')
+                suffix = f' ({added}, {removed})'
+            elif not self.verbose_log:
+                log_entry = False
+        else:
+            state = colored('Added', 'green')
+            linenum = colored(linenum, 'green')
+            if merger_entry.source_path == self.exported_path:
+                suffix = 'Exported file'
+            else:
+                if len(self.external_paths) == 1:
+                    suffix = 'External file'
+                else:
+                    suffix = f'External file #{self.external_paths.index(merger_entry.source_path) + 1}'
+            suffix = f' ({colored(suffix, "green")})'
+
+        if log_entry:
+            print(f'{state} {linenum}: {msgid}{suffix}')
 
     def log_statistics(self):
         entries = (
@@ -431,31 +461,6 @@ class POMerger:
         print()
         print('Added {}, merged {} and removed {}'.format(*entries))
         print('Added {} and removed {}'.format(*lines))
-
-    @staticmethod
-    def log_added(entry, is_exported):
-        prefix = 'Added'
-        if is_exported:
-            prefix += ' (EXPORTED)'
-        else:
-            prefix += ' (EXTERNAL)'
-        print(colored(f'{prefix}: \'{entry.entry.msgid}\'', 'green'))
-
-    @staticmethod
-    def log_warning(warning):
-        print(colored(warning, 'yellow'))
-
-    @staticmethod
-    def log_unaffected(entry):
-        print(f'Unaffected \'{entry.entry.linenum}\': {entry.entry.msgid}')
-
-    @staticmethod
-    def log_merged(entry):
-        print(colored(f'Merged {entry.entry.linenum}: \'{entry.entry.msgid}\'', 'cyan'))
-
-    @staticmethod
-    def log_removed(entry, removal_reason):
-        print(colored(f'Removed {entry.entry.linenum}: \'{entry.entry.msgid}\' ({removal_reason})', 'red'))
 
 
 if __name__ == '__main__':
