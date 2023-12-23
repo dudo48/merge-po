@@ -154,6 +154,9 @@ class POMerger:
         self.regex = kwargs.get('regex', '.')
         self.unmatch_references_regex = kwargs.get('unmatch_references_regex', None)
         self.unmatch_msgid_regex = kwargs.get('unmatch_msgid_regex', None)
+        self.delete_references_regex = kwargs.get('delete_references_regex', None)
+        self.delete_msgid_regex = kwargs.get('delete_msgid_regex', None)
+        self.delete_matched_only = kwargs.get('delete_matched_only', False)
         self.all_references = kwargs.get('all_references', False)
         self.ignore_duplicates = kwargs.get('ignore_duplicates', False)
         self.verbose_log = kwargs.get('verbose_log', False)
@@ -186,12 +189,18 @@ class POMerger:
         if self.exported_path:
             self.add_exported_entries()
 
+        if self.delete_msgid_regex:
+            self.delete_msgids()
+        if self.delete_references_regex:
+            self.delete_references()
+
         self.filter_no_references()
-        self.calculate_statistics()
-        self.add_extra_warnings()
 
         if self.sort_entries:
             self.output_entries.sort()
+
+        self.calculate_statistics()
+        self.add_extra_warnings()
 
     def parse_entries(self):
         """
@@ -382,6 +391,29 @@ class POMerger:
 
         self.output_entries = output_entries
 
+    def delete_msgids(self):
+        output_entries = []
+        for output_entry in self.output_entries:
+            is_base_entry = output_entry.source_path == self.base_path
+            is_matched = not self.delete_matched_only or output_entry.entry.msgid in self.matched_msgids
+            to_delete = is_matched and output_entry.msgid_matches_regex(self.delete_msgid_regex)
+
+            if to_delete:
+                if is_base_entry:
+                    self.removed_entries.append((output_entry, 'Deleted'))
+            else:
+                output_entries.append(output_entry)
+
+        self.output_entries = output_entries
+
+    def delete_references(self):
+        for output_entry in self.output_entries:
+            is_matched = not self.delete_matched_only or output_entry.entry.msgid in self.matched_msgids
+            if not is_matched:
+                continue
+            to_delete_references = set(filter_occurrences(output_entry.occurrences, self.delete_references_regex))
+            output_entry.occurrences -= to_delete_references
+
     def calculate_statistics(self):
         for merger_entry, _ in self.removed_entries:
             self.lines_removed += len(merger_entry.lines)
@@ -491,11 +523,17 @@ if __name__ == '__main__':
                         default=[])
     parser.add_argument('-e', '--exported-path', help='Exported file path')
     parser.add_argument('-r', '--regex',
-                        help='Match only references matching this regex. Default: all', default='.')
+                        help='Match only entries that have references matching this regex. Default: all', default='.')
     parser.add_argument('-u', '--unmatch-references-regex',
                         help='Entries that have references matching this regex will never be matched')
     parser.add_argument('-U', '--unmatch-msgid-regex',
                         help='Entries that have msgid matching this regex will never be matched')
+    parser.add_argument('-d', '--delete-references-regex',
+                        help='Delete reference lines matching this regex')
+    parser.add_argument('-D', '--delete-msgid-regex',
+                        help='Delete entries with msgid matching this regex')
+    parser.add_argument('--delete-matched-only', action='store_true',
+                        help='Delete entries with msgid matching this regex')
     parser.add_argument('-a', '--all-references', action='store_true',
                         help='If this flag is passed then all references of each matched entry will be matched')
     parser.add_argument('-i', '--ignore-duplicates', action='store_true',
@@ -503,10 +541,6 @@ if __name__ == '__main__':
                              ' to entries with duplicate msgids')
     parser.add_argument('-v', '--verbose-log', action='store_true',
                         help='If this flag is passed then extra information is logged to the console')
-    parser.add_argument('--summary-only', action='store_true',
-                        help='Log only the summary of what has been done')
-    parser.add_argument('--no-warnings', action='store_true',
-                        help='Do not log any warning')
     parser.add_argument('-n', '--no-merge-suggestions', action='store_true',
                         help='If this flag is passed then no suggestions for merging entries are shown'
                              ' (all entries are kept)')
@@ -515,6 +549,10 @@ if __name__ == '__main__':
                              ' to msgid and msgstr')
     parser.add_argument('-s', '--sort-references', action='store_true',
                         help='If this flag is passed then the references of each entry are sorted in the output file')
+    parser.add_argument('--summary-only', action='store_true',
+                        help='Log only the summary of what has been done')
+    parser.add_argument('--no-warnings', action='store_true',
+                        help='Do not log any warning')
 
     po_merger = POMerger(**vars(parser.parse_args()))
     po_merger.run()
