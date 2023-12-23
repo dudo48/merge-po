@@ -210,9 +210,13 @@ class POMerger:
         self.lines_added = self.lines_removed = 0
         self.warnings = []
 
+        self.initialize()
+
+    def initialize(self):
         self.parse_entries()
         self.add_base_entries()
         self.add_external_entries()
+        self.filter_duplicates()
 
         if self.exported_path:
             # filter first to prevent resolving ambiguity for entries that are not in the exported file
@@ -233,6 +237,9 @@ class POMerger:
 
         if self.translations_paths:
             self.suggest_translations()
+
+            # filter duplicates again because some msgstrs may have been changed to be same as other entries
+            self.filter_duplicates()
 
         if self.sort_entries:
             self.output_entries.sort()
@@ -285,39 +292,25 @@ class POMerger:
                     linenum += 1
 
     def add_base_entries(self):
-        added_entries = {}
         for base_entry in self.entries[self.base_path]:
-            if base_entry in added_entries:
-                added_entries[base_entry].merge_occurrences(base_entry)
-                self.removed_entries.append((base_entry, 'Duplicate entry'))
-            else:
-                self.output_entries.append(base_entry)
-                added_entries[base_entry] = base_entry
+            self.output_entries.append(base_entry)
 
     def add_external_entries(self):
-        added_entries = {e: e for e in self.output_entries}
+        regex = self.regex if not self.all_references else '.'
         for path in self.external_paths:
             for external_entry in filter(lambda e: e.entry.msgid in self.matched_msgids, self.entries[path]):
-                regex = self.regex if not self.all_references else '.'
-                external_entry.occurrences = set(
-                    filter_occurrences(external_entry.occurrences, regex)
-                )
-                if external_entry in added_entries:
-                    added_entries[external_entry].merge_occurrences(external_entry)
-                else:
-                    self.output_entries.append(external_entry)
-                    added_entries[external_entry] = external_entry
+                external_entry.occurrences = set(filter_occurrences(external_entry.occurrences, regex))
+                self.output_entries.append(external_entry)
 
     def add_exported_entries(self):
         output_entries_by_msgid = defaultdict(list)
         for output_entry in self.output_entries:
             output_entries_by_msgid[output_entry.entry.msgid].append(output_entry)
+
+        regex = self.regex if not self.all_references else '.'
         for exported_entry in filter(lambda e: e.entry.msgid in self.matched_msgids, self.entries[self.exported_path]):
             msgid = exported_entry.entry.msgid
-            regex = self.regex if not self.all_references else '.'
-            exported_entry.occurrences = set(
-                filter_occurrences(exported_entry.occurrences, regex)
-            )
+            exported_entry.occurrences = set(filter_occurrences(exported_entry.occurrences, regex))
             matching_entries = output_entries_by_msgid[msgid]
             if not matching_entries:
                 self.output_entries.append(exported_entry)
@@ -395,6 +388,23 @@ class POMerger:
                 remaining_entries = [e for e in entries if e not in removed_entries]
 
         self.output_entries = [e for e in self.output_entries if e not in removed_entries]
+
+    def filter_duplicates(self):
+        output_entries = []
+        added_entries = {}
+        for output_entry in self.output_entries:
+            is_base_entry = output_entry.source_path == self.base_path
+            is_duplicate = output_entry in added_entries
+
+            if is_duplicate:
+                added_entries[output_entry].merge_occurrences(output_entry)
+                if is_base_entry:
+                    self.removed_entries.append((output_entry, 'Duplicate entry'))
+            else:
+                output_entries.append(output_entry)
+                added_entries[output_entry] = output_entry
+
+        self.output_entries = output_entries
 
     def filter_not_in_exported(self):
         matched_exported_msgids = {
