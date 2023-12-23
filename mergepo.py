@@ -10,6 +10,7 @@ from collections import defaultdict
 from pick import pick
 from polib import pofile
 from termcolor import colored
+import os
 
 
 # functions to detect the type of po line
@@ -17,8 +18,17 @@ def is_reference(line):
     return line.startswith('#:')
 
 
+def is_msgtr(line):
+    return line.startswith('msgstr')
+
+
 def is_line_after_references(line):
     symbols = ['#,', '#|', 'msgid', '"', 'msgstr']
+    return any(line.startswith(symbol) for symbol in symbols)
+
+
+def is_line_after_msgid(line):
+    symbols = ['msgstr', '"']
     return any(line.startswith(symbol) for symbol in symbols)
 
 
@@ -31,6 +41,10 @@ def occurrence_to_reference(occurrence):
     return '#: ' + (f'{occurrence[0]}:{occurrence[1]}' if occurrence[1] else occurrence[0])
 
 
+def msgstr_to_line(msgstr):
+    return f'msgstr "{msgstr}"'
+
+
 def filter_occurrences(occurrences, regex):
     """
     Returns occurrences that match the regex
@@ -39,6 +53,16 @@ def filter_occurrences(occurrences, regex):
     :return:
     """
     return [o for o in occurrences if re.search(regex, occurrence_to_reference(o))]
+
+
+def find_po_files(path, regex='.'):
+    result = []
+    for root, dirs, files in os.walk(path):
+        for file in files:
+            absolute_path = os.path.join(str(root), file)
+            if file.endswith('.po') and re.search(regex, absolute_path):
+                result.append(absolute_path)
+    return result
 
 
 class POMergerEntry:
@@ -52,20 +76,23 @@ class POMergerEntry:
 
         self.lines = []
         self.occurrences = set(entry.occurrences)
+        self.new_msgstr = None
 
     def __str__(self, sort_references=False):
         result = ''
         reference_index = 0
-        were_references_added = False
+        were_references_added = was_new_msgstr_added = False
         references_lines = []
         added_occurrences = set()
         for line in self.lines:
+            write_line = True
             if is_reference(line):
                 occurrence = self.entry.occurrences[reference_index]
                 if occurrence in self.occurrences and occurrence not in added_occurrences:
                     references_lines.append(line)
                 reference_index += 1
                 added_occurrences.add(occurrence)
+                write_line = False
             elif is_line_after_references(line) and not were_references_added:
                 for occurrence in self.added_occurrences:
                     references_lines.append(f'{occurrence_to_reference(occurrence)}\n')
@@ -73,7 +100,12 @@ class POMergerEntry:
                     references_lines.sort()
                 result += ''.join(references_lines)
                 were_references_added = True
-            if not is_reference(line):
+            if is_line_after_msgid(line) and self.new_msgstr:
+                write_line = False
+                if not was_new_msgstr_added:
+                    result += f'{msgstr_to_line(self.new_msgstr)}\n'
+                    was_new_msgstr_added = True
+            if write_line:
                 result += line
 
         return result
@@ -152,6 +184,9 @@ class POMerger:
         self.external_paths = kwargs.get('external_paths', [])
         self.exported_path = kwargs.get('exported_path', None)
         self.regex = kwargs.get('regex', '.')
+        self.translations_paths = kwargs.get('translations_paths', [])
+        self.translations_regex = kwargs.get('translations_regex', '.')
+        self.translate_new_only = kwargs.get('translate_new_only', False)
         self.unmatch_references_regex = kwargs.get('unmatch_references_regex', None)
         self.unmatch_msgid_regex = kwargs.get('unmatch_msgid_regex', None)
         self.delete_references_regex = kwargs.get('delete_references_regex', None)
@@ -195,6 +230,9 @@ class POMerger:
             self.delete_references()
 
         self.filter_no_references()
+
+        if self.translations_paths:
+            self.suggest_translations()
 
         if self.sort_entries:
             self.output_entries.sort()
@@ -439,6 +477,42 @@ class POMerger:
                 msgids = ', '.join([f'\'{e.entry.msgid}\'' for e in entries])
                 self.warnings.append(f'Entries with the following msgids have the same msgstr \'{msgstr}\': {msgids}')
 
+    def suggest_translations(self):
+        po_files = set()
+        excluded_po_files = set([os.path.realpath(p) for p in [self.base_path] + self.external_paths])
+        for path in self.translations_paths:
+            for po_file in find_po_files(path, self.translations_regex):
+                canonical_path = os.path.realpath(po_file)
+                if canonical_path not in excluded_po_files:
+                    po_files.add(canonical_path)
+
+        entries = [e for e in self.output_entries if not self.translate_new_only or e.source_path != self.base_path]
+        suggested_msgstrs_by_msgid = {e.entry.msgid.strip().lower(): {e.entry.msgstr} for e in entries}
+        for po_file in po_files:
+            for entry in pofile(po_file):
+                msgid = entry.msgid.strip().lower()
+                if msgid in suggested_msgstrs_by_msgid:
+                    suggested_msgstrs_by_msgid[msgid].add(entry.msgstr)
+
+        suggested_msgstrs_by_entry = {}
+        for merger_entry in entries:
+            msgid = merger_entry.entry.msgid.strip().lower()
+            if msgid in suggested_msgstrs_by_msgid and len(suggested_msgstrs_by_msgid[msgid]) > 1:
+                suggested_msgstrs_by_entry[merger_entry] = suggested_msgstrs_by_msgid[msgid]
+
+        for i, (merger_entry, suggested_msgstrs) in enumerate(suggested_msgstrs_by_entry.items()):
+            suggestions = ([merger_entry.entry.msgstr]
+                           + sorted([m for m in suggested_msgstrs if m != merger_entry.entry.msgstr]))
+            _, j = pick(
+                [f'{m} (Original)' if k == 0 else m for k, m in enumerate(suggestions)],
+                f'TRANSLATION SUGGESTION ({i + 1} of {len(suggested_msgstrs_by_entry)})\n\n'
+                f'The entry with following msgid:\n\n\'{merger_entry.entry.msgid}\'\n\nmay be translated as'
+                f' one of the following:\n\n',
+                indicator='=>'
+            )
+            if j != 0:
+                merger_entry.new_msgstr = suggestions[j]
+
     def run(self):
         if not self.summary_only:
             for merger_entry, removal_reason in self.removed_entries:
@@ -498,6 +572,9 @@ class POMerger:
                     comment = f'External file #{self.external_paths.index(merger_entry.source_path) + 1}'
             comment = f' ({colored(comment, "green")})'
 
+        if not removal_reason and merger_entry.new_msgstr:
+            comment += f' ({colored("Translation updated", "green")})'
+
         if log_entry:
             print(f'{state} {linenum}{comment}: {msgid}')
 
@@ -519,11 +596,18 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-b', '--base-path', required=True, help='Base file path')
     parser.add_argument('-o', '--output-path', required=True, help='Output file path')
-    parser.add_argument('-m', '--external-paths', nargs='+', help='External files paths',
-                        default=[])
+    parser.add_argument('-m', '--external-paths', nargs='+', help='External files paths', default=[])
     parser.add_argument('-e', '--exported-path', help='Exported file path')
     parser.add_argument('-r', '--regex',
                         help='Match only entries that have references matching this regex. Default: all', default='.')
+    parser.add_argument('-t', '--translations-paths', nargs='+',
+                        help='If any directory path is passed here then all the entries in all PO files'
+                             ' in the sub-folders of that directory will be used as translation suggestions'
+                             ' for the entries of the output file if the their msgids match', default=[])
+    parser.add_argument('-T', '--translations-regex',
+                        help='Match only translation files that have absolute paths matching this regex', default='.')
+    parser.add_argument('-n', '--translate-new-only', action='store_true',
+                        help='Suggest translations for added (new) entries only')
     parser.add_argument('-u', '--unmatch-references-regex',
                         help='Entries that have references matching this regex will never be matched')
     parser.add_argument('-U', '--unmatch-msgid-regex',
@@ -541,7 +625,7 @@ if __name__ == '__main__':
                              ' to entries with duplicate msgids')
     parser.add_argument('-v', '--verbose-log', action='store_true',
                         help='If this flag is passed then extra information is logged to the console')
-    parser.add_argument('-n', '--no-merge-suggestions', action='store_true',
+    parser.add_argument('--no-merge-suggestions', action='store_true',
                         help='If this flag is passed then no suggestions for merging entries are shown'
                              ' (all entries are kept)')
     parser.add_argument('-S', '--sort-entries', action='store_true',
