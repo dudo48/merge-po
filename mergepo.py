@@ -478,6 +478,10 @@ class POMerger:
                 self.warnings.append(f'Entries with the following msgids have the same msgstr \'{msgstr}\': {msgids}')
 
     def suggest_translations(self):
+        entries = [e for e in self.output_entries if not self.translate_new_only or e.source_path != self.base_path]
+        if not entries:
+            return
+
         po_files = set()
         excluded_po_files = set([os.path.realpath(p) for p in [self.base_path] + self.external_paths])
         for path in self.translations_paths:
@@ -486,13 +490,16 @@ class POMerger:
                 if canonical_path not in excluded_po_files:
                     po_files.add(canonical_path)
 
-        entries = [e for e in self.output_entries if not self.translate_new_only or e.source_path != self.base_path]
         suggested_msgstrs_by_msgid = {e.entry.msgid.strip().lower(): {e.entry.msgstr} for e in entries}
         for po_file in po_files:
-            for entry in pofile(po_file):
-                msgid = entry.msgid.strip().lower()
-                if msgid in suggested_msgstrs_by_msgid:
-                    suggested_msgstrs_by_msgid[msgid].add(entry.msgstr)
+            try:
+                for entry in pofile(po_file):
+                    msgid = entry.msgid.strip().lower()
+                    if msgid in suggested_msgstrs_by_msgid:
+                        suggested_msgstrs_by_msgid[msgid].add(entry.msgstr)
+            except OSError:
+                self.warnings.append(
+                    f'The following translation file was partly processed due to a PO syntax error: {po_file}')
 
         suggested_msgstrs_by_entry = {}
         for merger_entry in entries:
