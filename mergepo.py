@@ -18,18 +18,12 @@ def is_reference(line):
     return line.startswith('#:')
 
 
-def is_msgtr(line):
+def is_msgstr(line):
     return line.startswith('msgstr')
 
 
-def is_line_after_references(line):
-    symbols = ['#,', '#|', 'msgid', '"', 'msgstr']
-    return any(line.startswith(symbol) for symbol in symbols)
-
-
-def is_line_after_msgid(line):
-    symbols = ['msgstr', '"']
-    return any(line.startswith(symbol) for symbol in symbols)
+def is_msg_continued(line):
+    return line.startswith('"')
 
 
 def occurrence_to_reference(occurrence):
@@ -79,31 +73,40 @@ class POMergerEntry:
         self.new_msgstr = None
 
     def __str__(self, sort_references=False):
-        result = ''
         reference_index = 0
-        were_references_added = was_new_msgstr_added = False
         references_lines = []
         added_occurrences = set()
         for line in self.lines:
-            write_line = True
             if is_reference(line):
                 occurrence = self.entry.occurrences[reference_index]
                 if occurrence in self.occurrences and occurrence not in added_occurrences:
                     references_lines.append(line)
                 reference_index += 1
                 added_occurrences.add(occurrence)
+
+        for occurrence in self.added_occurrences:
+            references_lines.append(f'{occurrence_to_reference(occurrence)}\n')
+        if sort_references:
+            references_lines.sort()
+
+        references = ''.join(references_lines)
+        new_msgstr = f'{msgstr_to_line(self.new_msgstr)}\n'
+
+        result = ''
+        part_of_msgstr = False
+        were_references_added = was_new_msgstr_added = False
+        for line in self.lines:
+            write_line = True
+            part_of_msgstr = is_msgstr(line) or (part_of_msgstr and is_msg_continued(line))
+            if is_reference(line):
                 write_line = False
-            elif is_line_after_references(line) and not were_references_added:
-                for occurrence in self.added_occurrences:
-                    references_lines.append(f'{occurrence_to_reference(occurrence)}\n')
-                if sort_references:
-                    references_lines.sort()
-                result += ''.join(references_lines)
-                were_references_added = True
-            if is_line_after_msgid(line) and self.new_msgstr:
+                if not were_references_added:
+                    result += references
+                    were_references_added = True
+            if part_of_msgstr and self.new_msgstr:
                 write_line = False
                 if not was_new_msgstr_added:
-                    result += f'{msgstr_to_line(self.new_msgstr)}\n'
+                    result += new_msgstr
                     was_new_msgstr_added = True
             if write_line:
                 result += line
@@ -468,11 +471,11 @@ class POMerger:
 
         for output_entry in self.output_entries:
             if output_entry.source_path == self.base_path:
-                lines_added = len(output_entry.added_occurrences)
-                lines_removed = len(output_entry.removed_occurrences)
-                self.lines_added += lines_added
-                self.lines_removed += lines_removed
-                if lines_added or lines_removed:
+                occurrences_added = len(output_entry.added_occurrences)
+                occurrences_removed = len(output_entry.removed_occurrences)
+                self.lines_added += occurrences_added
+                self.lines_removed += occurrences_removed
+                if occurrences_added or occurrences_removed:
                     self.merged_entries.add(output_entry)
             else:
                 self.added_entries.add(output_entry)
