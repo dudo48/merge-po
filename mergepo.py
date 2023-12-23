@@ -209,7 +209,8 @@ class POMerger:
         self.output_entries = []
 
         self.preamble = ''
-        self.added_entries, self.merged_entries, self.removed_entries = set(), set(), []
+        self.added_entries, self.modified_entries, self.removed_entries = set(), set(), []
+        self.updated_translations_entries = set()
         self.lines_added = self.lines_removed = 0
         self.warnings = []
 
@@ -476,10 +477,12 @@ class POMerger:
                 self.lines_added += occurrences_added
                 self.lines_removed += occurrences_removed
                 if occurrences_added or occurrences_removed:
-                    self.merged_entries.add(output_entry)
+                    self.modified_entries.add(output_entry)
             else:
                 self.added_entries.add(output_entry)
                 self.lines_added += output_entry.__str__().count('\n')
+            if output_entry.new_msgstr:
+                self.updated_translations_entries.add(output_entry)
 
     def add_extra_warnings(self):
         output_entries_by_msgstr = defaultdict(list)
@@ -567,13 +570,13 @@ class POMerger:
                 state = colored('Removed', 'red')
                 linenum = colored(linenum, 'red')
                 comment = f' ({colored(removal_reason, "red")})'
-            elif merger_entry in self.merged_entries:
+            elif merger_entry in self.modified_entries:
                 state = colored('Modified', 'cyan')
                 linenum = colored(linenum, 'cyan')
 
-                added = colored(f'Added {len(merger_entry.added_occurrences)}', 'green')
-                removed = colored(f'removed {len(merger_entry.removed_occurrences)}', 'red')
-                comment = f' ({added} and {removed} references)'
+                added = colored(f'+{len(merger_entry.added_occurrences)} references', 'green')
+                removed = colored(f'-{len(merger_entry.removed_occurrences)} references', 'red')
+                comment = f' ({added}, {removed})'
             elif not self.verbose_log:
                 log_entry = False
         else:
@@ -589,7 +592,7 @@ class POMerger:
             comment = f' ({colored(comment, "green")})'
 
         if not removal_reason and merger_entry.new_msgstr:
-            comment += f' ({colored("Translation updated", "green")})'
+            comment += f' ({colored("Translation updated", "cyan")})'
 
         if log_entry:
             print(f'{state} {linenum}{comment}: {msgid}')
@@ -597,15 +600,20 @@ class POMerger:
     def log_statistics(self):
         entries = (
             colored(str(len(self.added_entries)) + ' entries', 'green'),
-            colored(str(len(self.merged_entries)) + ' entries', 'cyan'),
+            colored(str(len(self.modified_entries)) + ' entries', 'cyan'),
             colored(str(len(self.removed_entries)) + ' entries', 'red')
         )
         lines = (
             colored(str(self.lines_added) + ' lines', 'green'),
             colored(str(self.lines_removed) + ' lines', 'red')
         )
-        print('Added {}, merged {} and removed {}'.format(*entries))
-        print('Added {} and removed {}'.format(*lines))
+        print('Added {}, modified {} and removed {}'.format(*entries))
+        if self.translations_paths:
+            translations = colored("{} entries".format(len(self.updated_translations_entries)), 'cyan')
+            print(f'Updated translations for {translations}')
+
+        # commented until fixed
+        # print('Added {} and removed {}'.format(*lines))
 
 
 if __name__ == '__main__':
