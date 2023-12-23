@@ -140,7 +140,7 @@ class POMergerEntry:
         return removed_occurrences
 
     def __key(self):
-        return self.entry.msgid, self.entry.msgstr
+        return self.entry.msgid, (self.new_msgstr or self.entry.msgstr)
 
     def merge_occurrences(self, other):
         """
@@ -483,12 +483,8 @@ class POMerger:
             return
 
         po_files = set()
-        excluded_po_files = set([os.path.realpath(p) for p in [self.base_path] + self.external_paths])
         for path in self.translations_paths:
-            for po_file in find_po_files(path, self.translations_regex):
-                canonical_path = os.path.realpath(po_file)
-                if canonical_path not in excluded_po_files:
-                    po_files.add(canonical_path)
+            po_files.update(find_po_files(path, self.translations_regex))
 
         suggested_msgstrs_by_msgid = {e.entry.msgid.strip().lower(): {e.entry.msgstr} for e in entries}
         for po_file in po_files:
