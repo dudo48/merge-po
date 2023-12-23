@@ -31,14 +31,21 @@ def occurrence_to_reference(occurrence):
     return '#: ' + (f'{occurrence[0]}:{occurrence[1]}' if occurrence[1] else occurrence[0])
 
 
-def filter_occurrences(occurrences, regex):
+def filter_occurrences(occurrences, regex, excluded_regex=None):
     """
     Returns occurrences that match the regex
     :param occurrences:
     :param regex:
+    :param excluded_regex:
     :return:
     """
-    return [o for o in occurrences if re.search(regex, occurrence_to_reference(o))]
+    result = []
+    for o in occurrences:
+        reference = occurrence_to_reference(o)
+        is_excluded = excluded_regex and re.search(excluded_regex, reference)
+        if re.search(regex, reference) and not is_excluded:
+            result.append(o)
+    return result
 
 
 class POMergerEntry:
@@ -110,29 +117,25 @@ class POMergerEntry:
     def __key(self):
         return self.entry.msgid, self.entry.msgstr
 
-    def merge_occurrences(self, other, regex='.'):
+    def merge_occurrences(self, other):
         """
-        Merge occurrences of current object with another POMergerEntry object (union on occurrences matching regex only)
+        Merge occurrences of current object with another POMergerEntry object (union on occurrences)
         :param other:
-        :param regex:
         :return:
         """
-        filtered_other_occurrences = set(filter_occurrences(other.occurrences, regex))
-        self.occurrences = self.occurrences.union(filtered_other_occurrences)
+        self.occurrences = self.occurrences.union(other.occurrences)
 
-    def match_occurrences(self, other, regex='.'):
+    def match_occurrences(self, other, regex='.', excluded_regex=None):
         """
         Set occurrences of current object to match another POMergerEntry object's occurrences
         (occurrences matching regex only)
         :param other:
         :param regex:
+        :param excluded_regex:
         :return:
         """
-        filtered_self_occurrences = set(filter_occurrences(self.occurrences, regex))
-        filtered_other_occurrences = set(filter_occurrences(other.occurrences, regex))
-
-        self.occurrences = self.occurrences.union(filtered_other_occurrences)
-        self.occurrences -= filtered_self_occurrences - other.occurrences
+        filtered_self_occurrences = set(filter_occurrences(self.occurrences, regex, excluded_regex))
+        self.occurrences = self.occurrences.union(other.occurrences) - (filtered_self_occurrences - other.occurrences)
 
     def matches_regex(self, regex, match_empty=True):
         """
@@ -154,12 +157,15 @@ class POMerger:
         self.external_paths = kwargs.get('external_paths', [])
         self.exported_path = kwargs.get('exported_path', None)
         self.regex = kwargs.get('regex', '.')
+        self.excluded_regex = kwargs.get('excluded_regex', None)
+        self.excluded_msgid = kwargs.get('excluded_msgid', None)
         self.all_references = kwargs.get('all_references', False)
         self.ignore_duplicates = kwargs.get('ignore_duplicates', False)
         self.verbose_log = kwargs.get('verbose_log', False)
         self.no_merge_suggestions = kwargs.get('no_merge_suggestions', False)
         self.sort_entries = kwargs.get('sort_entries', False)
         self.sort_references = kwargs.get('sort_references', False)
+        self.summary_only = kwargs.get('summary_only', False)
 
         self.entries = defaultdict(list)
         self.matched_msgids = set()
@@ -202,7 +208,8 @@ class POMerger:
                 merger_entry = POMergerEntry(entry, path)
                 self.entries[path].append(merger_entry)
                 entries_by_msgid[entry.msgid].append(merger_entry)
-                if merger_entry.matches_regex(self.regex):
+                is_excluded = self.excluded_msgid and re.search(self.excluded_msgid, entry.msgid)
+                if merger_entry.matches_regex(self.regex) and not is_excluded:
                     self.matched_msgids.add(entry.msgid)
         self.parse_entries_lines()
 
@@ -238,10 +245,12 @@ class POMerger:
         for path in self.external_paths:
             for external_entry in filter(lambda e: e.entry.msgid in self.matched_msgids, self.entries[path]):
                 regex = self.regex if not self.all_references else '.'
+                external_entry.occurrences = set(
+                    filter_occurrences(external_entry.occurrences, regex, self.excluded_regex)
+                )
                 if external_entry in added_entries:
-                    added_entries[external_entry].merge_occurrences(external_entry, regex)
+                    added_entries[external_entry].merge_occurrences(external_entry)
                 else:
-                    external_entry.occurrences = set(filter_occurrences(external_entry.occurrences, regex))
                     self.output_entries.append(external_entry)
                     added_entries[external_entry] = external_entry
 
@@ -252,23 +261,26 @@ class POMerger:
         for exported_entry in filter(lambda e: e.entry.msgid in self.matched_msgids, self.entries[self.exported_path]):
             msgid = exported_entry.entry.msgid
             regex = self.regex if not self.all_references else '.'
+            exported_entry.occurrences = set(
+                filter_occurrences(exported_entry.occurrences, regex, self.excluded_regex)
+            )
             matching_entries = output_entries_by_msgid[msgid]
             if not matching_entries:
-                exported_entry.occurrences = set(filter_occurrences(exported_entry.occurrences, regex))
                 self.output_entries.append(exported_entry)
             elif len(matching_entries) == 1:
-                matching_entries[0].match_occurrences(exported_entry, regex)
+                matching_entries[0].match_occurrences(exported_entry, regex, self.excluded_regex)
             else:
-                self.resolve_ambiguous_occurrences(exported_entry, matching_entries, regex)
+                self.match_multiple_entries(exported_entry, matching_entries, regex, self.excluded_regex)
 
-    def resolve_ambiguous_occurrences(self, matcher_entry, matching_entries, regex):
+    def match_multiple_entries(self, matcher_entry, matching_entries, regex, excluded_regex):
         """
-        Match an entry's occurrences with a list of other entries (give choice where to add each new occurrence)
+        Match an entry's occurrences with a list of other entries, give choice where to add each new occurrence if
+        destination is ambiguous
         """
         ambiguous_occurrences = None
         for matching_entry in matching_entries:
             old_occurrences = matching_entry.occurrences
-            matching_entry.match_occurrences(matcher_entry, regex)
+            matching_entry.match_occurrences(matcher_entry, regex, excluded_regex)
             added_occurrences = matching_entry.occurrences - old_occurrences
             matching_entry.occurrences -= added_occurrences
 
@@ -389,8 +401,9 @@ class POMerger:
                 self.warnings.append(f'Entries with the following msgids have the same msgstr \'{msgstr}\': {msgids}')
 
     def run(self):
-        for merger_entry, removal_reason in self.removed_entries:
-            self.log_entry(merger_entry, removal_reason)
+        if not self.summary_only:
+            for merger_entry, removal_reason in self.removed_entries:
+                self.log_entry(merger_entry, removal_reason)
         with open(self.output_path, 'w', encoding='utf-8') as output_file:
             output_file.write(self.preamble)
             for i, entry in enumerate(self.output_entries):
@@ -402,11 +415,12 @@ class POMerger:
                 elif not entry_string.endswith('\n\n'):
                     entry_string += '\n\n'
                 output_file.write(entry_string)
+                if not self.summary_only:
+                    self.log_entry(entry)
 
-                self.log_entry(entry)
-
-        for warning in self.warnings:
-            print(colored(warning, 'yellow'))
+        if not self.summary_only:
+            for warning in self.warnings:
+                print(colored(warning, 'yellow'))
         if self.lines_added == self.lines_removed == 0:
             print('No changes done, original file is identical to output file')
         else:
@@ -416,37 +430,37 @@ class POMerger:
         state = 'Unaffected'
         linenum = str(merger_entry.entry.linenum) if merger_entry.source_path == self.base_path else 'NEW'
         msgid = colored(merger_entry.entry.msgid, 'light_grey')
-        suffix = ''
+        comment = ''
         log_entry = True
 
         if merger_entry.source_path == self.base_path:
             if removal_reason:
                 state = colored('Removed', 'red')
                 linenum = colored(linenum, 'red')
-                suffix = f' ({colored(removal_reason, "red")})'
+                comment = f' ({colored(removal_reason, "red")})'
             elif merger_entry in self.merged_entries:
                 state = colored('Modified', 'cyan')
                 linenum = colored(linenum, 'cyan')
 
-                added = colored(f'+{len(merger_entry.added_occurrences)}', 'green')
-                removed = colored(f'-{len(merger_entry.removed_occurrences)}', 'red')
-                suffix = f' ({added}, {removed})'
+                added = colored(f'Added {len(merger_entry.added_occurrences)}', 'green')
+                removed = colored(f'removed {len(merger_entry.removed_occurrences)}', 'red')
+                comment = f' ({added} and {removed} references)'
             elif not self.verbose_log:
                 log_entry = False
         else:
             state = colored('Added', 'green')
             linenum = colored(linenum, 'green')
             if merger_entry.source_path == self.exported_path:
-                suffix = 'Exported file'
+                comment = 'Exported file'
             else:
                 if len(self.external_paths) == 1:
-                    suffix = 'External file'
+                    comment = 'External file'
                 else:
-                    suffix = f'External file #{self.external_paths.index(merger_entry.source_path) + 1}'
-            suffix = f' ({colored(suffix, "green")})'
+                    comment = f'External file #{self.external_paths.index(merger_entry.source_path) + 1}'
+            comment = f' ({colored(comment, "green")})'
 
         if log_entry:
-            print(f'{state} {linenum}: {msgid}{suffix}')
+            print(f'{state} {linenum}{comment}: {msgid}')
 
     def log_statistics(self):
         entries = (
@@ -458,7 +472,6 @@ class POMerger:
             colored(str(self.lines_added) + ' lines', 'green'),
             colored(str(self.lines_removed) + ' lines', 'red')
         )
-        print()
         print('Added {}, merged {} and removed {}'.format(*entries))
         print('Added {} and removed {}'.format(*lines))
 
@@ -466,21 +479,25 @@ class POMerger:
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-b', '--base-path', required=True, help='Base file path')
-    parser.add_argument('-m', '--external-paths', nargs='+', help='Paths for external files to merge into the base',
+    parser.add_argument('-o', '--output-path', required=True, help='Output file path')
+    parser.add_argument('-m', '--external-paths', nargs='+', help='External files paths',
                         default=[])
     parser.add_argument('-e', '--exported-path', help='Exported file path')
-    parser.add_argument('-o', '--output-path', required=True, help='Output file path')
     parser.add_argument('-r', '--regex',
-                        help='Match only entries that have references matching this regex. default: all', default='.')
+                        help='Match only references matching this regex. Default: all', default='.')
+    parser.add_argument('-x', '--excluded-regex',
+                        help='Exclude references matching this regex from matched references')
+    parser.add_argument('-X', '--excluded-msgid',
+                        help='Entries with msgid matching this regex will not be matched')
     parser.add_argument('-a', '--all-references', action='store_true',
-                        help='Whether to merge all different references present in '
-                             'matched entries or add only those references that match the'
-                             ' specified regex')
+                        help='If this flag is passed then all references of each matched entry will be matched')
     parser.add_argument('-i', '--ignore-duplicates', action='store_true',
                         help='If this flag is passed then no new references will be added'
                              ' to entries with duplicate msgids')
     parser.add_argument('-v', '--verbose-log', action='store_true',
                         help='If this flag is passed then extra information is logged to the console')
+    parser.add_argument('-u', '--summary-only', action='store_true',
+                        help='Log only the summary of what has been done')
     parser.add_argument('-n', '--no-merge-suggestions', action='store_true',
                         help='If this flag is passed then no suggestions for merging entries are shown'
                              ' (all entries are kept)')
