@@ -261,6 +261,8 @@ class POMerger:
             for entry in pofile(path):
                 merger_entry = POMergerEntry(entry, path)
                 self.entries[path].append(merger_entry)
+                if merger_entry.references_match_regex(self.regex):
+                    self.matched_msgids.add(entry.msgid)
 
                 msgid_unmatch = self.unmatch_msgid_regex and merger_entry.msgid_matches_regex(
                     self.unmatch_msgid_regex, match_empty=False
@@ -268,12 +270,10 @@ class POMerger:
                 references_unmatch = self.unmatch_references_regex and merger_entry.references_match_regex(
                     self.unmatch_references_regex, match_empty=False
                 )
-                is_unmatched = entry.msgid in unmatched_msgids or msgid_unmatch or references_unmatch
-                if merger_entry.references_match_regex(self.regex):
-                    if is_unmatched:
-                        unmatched_msgids.add(entry.msgid)
-                    else:
-                        self.matched_msgids.add(entry.msgid)
+                if msgid_unmatch or references_unmatch:
+                    unmatched_msgids.add(entry.msgid)
+
+        self.matched_msgids -= unmatched_msgids
         for msgid in sorted(unmatched_msgids):
             self.warnings.append(f'The following msgid has been unmatched: {msgid}')
         self.parse_entries_lines()
