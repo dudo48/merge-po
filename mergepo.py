@@ -218,6 +218,7 @@ class POMerger:
 
     def initialize(self):
         self.parse_entries()
+        self.find_matched_msgids()
         self.add_base_entries()
         self.add_external_entries()
         self.filter_duplicates()
@@ -253,29 +254,14 @@ class POMerger:
 
     def parse_entries(self):
         """
-        Parses entries from all paths into POMergerEntry object
+        Parses entries from all paths into POMergerEntry objects
         """
-        unmatched_msgids = set()
         paths = [self.base_path] + self.external_paths + ([self.exported_path] if self.exported_path else [])
         for path in paths:
             for entry in pofile(path):
                 merger_entry = POMergerEntry(entry, path)
                 self.entries[path].append(merger_entry)
-                if merger_entry.references_match_regex(self.regex):
-                    self.matched_msgids.add(entry.msgid)
 
-                msgid_unmatch = self.unmatch_msgid_regex and merger_entry.msgid_matches_regex(
-                    self.unmatch_msgid_regex, match_empty=False
-                )
-                references_unmatch = self.unmatch_references_regex and merger_entry.references_match_regex(
-                    self.unmatch_references_regex, match_empty=False
-                )
-                if msgid_unmatch or references_unmatch:
-                    unmatched_msgids.add(entry.msgid)
-
-        self.matched_msgids -= unmatched_msgids
-        for msgid in sorted(unmatched_msgids):
-            self.warnings.append(f'The following msgid has been unmatched: {msgid}')
         self.parse_entries_lines()
 
     def parse_entries_lines(self):
@@ -294,6 +280,29 @@ class POMerger:
                     elif path == self.base_path:
                         self.preamble += line
                     linenum += 1
+
+    def find_matched_msgids(self):
+        """
+        Find msgids that are matched
+        """
+        unmatched_msgids = set()
+        for path, entries in self.entries.items():
+            for merger_entry in entries:
+                if merger_entry.references_match_regex(self.regex):
+                    self.matched_msgids.add(merger_entry.entry.msgid)
+
+                msgid_unmatch = self.unmatch_msgid_regex and merger_entry.msgid_matches_regex(
+                    self.unmatch_msgid_regex, match_empty=False
+                )
+                references_unmatch = self.unmatch_references_regex and merger_entry.references_match_regex(
+                    self.unmatch_references_regex, match_empty=False
+                )
+                if msgid_unmatch or references_unmatch:
+                    unmatched_msgids.add(merger_entry.entry.msgid)
+
+        self.matched_msgids -= unmatched_msgids
+        for msgid in sorted(unmatched_msgids):
+            self.warnings.append(f'The following msgid has been unmatched: {msgid}')
 
     def add_base_entries(self):
         for base_entry in self.entries[self.base_path]:
@@ -537,18 +546,19 @@ class POMerger:
             for merger_entry, removal_reason in self.removed_entries:
                 self.log_entry(merger_entry, removal_reason)
         with open(self.output_path, 'w', encoding='utf-8') as output_file:
-            output_file.write(self.preamble)
+            content = ''
+            content += self.preamble
             for i, entry in enumerate(self.output_entries):
-                entry_string = entry.__str__(sort_references=self.sort_references)
+                entry_string = entry.__str__(sort_references=self.sort_references).strip()
 
-                # fix entries from other files than base getting concatenated on same line
-                if i == len(self.output_entries) - 1:
-                    entry_string = entry_string.rstrip('\n')
-                elif not entry_string.endswith('\n\n'):
-                    entry_string += '\n\n'
-                output_file.write(entry_string)
+                if i != 0:
+                    content += '\n\n'
+                content += entry_string
+
                 if not self.summary_only:
                     self.log_entry(entry)
+
+            output_file.write(content)
 
         if not self.summary_only and not self.no_warnings:
             for warning in self.warnings:
