@@ -628,8 +628,9 @@ if __name__ == '__main__':
                         help='If any directory path is passed here then all the entries in all PO files'
                              ' in the sub-folders of that directory will be used as translation suggestions'
                              ' for the entries of the output file if the their msgids match', default=[])
-    parser.add_argument('-T', '--translations-regex',
-                        help='Match only translation files that have absolute paths matching this regex', default='.')
+    parser.add_argument('-l', '--translations-regex',
+                        help='Match only translation files that have absolute paths matching this regex'
+                             ' (useful to select a certain language)', default='.')
     parser.add_argument('-n', '--translate-new-only', action='store_true',
                         help='Suggest translations for added (new) entries only')
     parser.add_argument('-u', '--unmatch-references-regex',
