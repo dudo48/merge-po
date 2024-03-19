@@ -652,7 +652,7 @@ if __name__ == '__main__':
     parser.add_argument('-D', '--delete-msgid-regex',
                         help='Delete entries with msgid matching this regex')
     parser.add_argument('--delete-matched-only', action='store_true',
-                        help='Delete entries with msgid matching this regex')
+                        help='Delete only entries which are matched by --regex flag')
     parser.add_argument('-a', '--all-references', action='store_true',
                         help='If this flag is passed then all references of each matched entry will be matched')
     parser.add_argument('-i', '--ignore-duplicates', action='store_true',
