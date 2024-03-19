@@ -201,6 +201,7 @@ class POMerger:
         self.no_merge_suggestions = kwargs.get('no_merge_suggestions', False)
         self.sort_entries = kwargs.get('sort_entries', False)
         self.sort_references = kwargs.get('sort_references', False)
+        self.interactive_translation = kwargs.get('interactive_translation', False)
         self.summary_only = kwargs.get('summary_only', False)
         self.no_warnings = kwargs.get('no_warnings', False)
 
@@ -244,6 +245,10 @@ class POMerger:
             self.suggest_translations()
 
             # filter duplicates again because some msgstrs may have been changed to be same as other entries
+            self.filter_duplicates()
+            
+        if self.interactive_translation:
+            self.translate_interactively()
             self.filter_duplicates()
 
         if self.sort_entries:
@@ -541,6 +546,19 @@ class POMerger:
             if j != 0:
                 merger_entry.new_msgstr = suggestions[j]
 
+    def translate_interactively(self):
+        matched_entries = [e for e in self.output_entries if e.entry.msgid in self.matched_msgids]
+        for i, merger_entry in enumerate(matched_entries):
+            print(
+                f'INTERACTIVE TRANSLATION ({i + 1} of {len(matched_entries)})\n\n'
+                f'Enter translation for the entry with the below msgid and msgstr '
+                f'or leave the input empty to leave its msgstr as it is\n\n'
+                f'\'{merger_entry.entry.msgid}\' -> \'{merger_entry.new_msgstr or merger_entry.entry.msgstr}\'\n\n'
+            )
+            new_msgstr = input('=> ')
+            if new_msgstr:
+                merger_entry.new_msgstr = new_msgstr
+
     def run(self):
         if not self.summary_only:
             for merger_entry, removal_reason in self.removed_entries:
@@ -668,6 +686,8 @@ if __name__ == '__main__':
                              ' to msgid and msgstr')
     parser.add_argument('-s', '--sort-references', action='store_true',
                         help='If this flag is passed then the references of each entry are sorted in the output file')
+    parser.add_argument('-I', '--interactive-translation', action='store_true',
+                        help='Interactively translate matched entries')
     parser.add_argument('--summary-only', action='store_true',
                         help='Log only the summary of what has been done')
     parser.add_argument('--no-warnings', action='store_true',
