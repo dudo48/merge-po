@@ -555,9 +555,10 @@ class POMerger:
                 f'or leave the input empty to leave its msgstr as it is\n\n'
                 f'\'{merger_entry.entry.msgid}\' -> \'{merger_entry.new_msgstr or merger_entry.entry.msgstr}\'\n\n'
             )
-            new_msgstr = input('=> ')
+            new_msgstr = input(': ')
             if new_msgstr:
                 merger_entry.new_msgstr = new_msgstr
+            print('\n')
 
     def run(self):
         if not self.summary_only:
