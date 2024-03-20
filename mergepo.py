@@ -182,7 +182,7 @@ class POMergerEntry:
 class POMerger:
     def __init__(self, base_path, output_path, **kwargs):
         self.base_path = base_path
-        self.output_path = output_path
+        self.output_path = output_path or base_path
 
         self.external_paths = kwargs.get('external_paths', [])
         self.exported_path = kwargs.get('exported_path', None)
@@ -648,7 +648,7 @@ class POMerger:
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-b', '--base-path', required=True, help='Base file path')
-    parser.add_argument('-o', '--output-path', required=True, help='Output file path')
+    parser.add_argument('-o', '--output-path', help='Output file path, if not given defaults to base path (replaces original file)')
     parser.add_argument('-m', '--external-paths', nargs='+', help='External files paths', default=[])
     parser.add_argument('-e', '--exported-path', help='Exported file path')
     parser.add_argument('-r', '--regex',
