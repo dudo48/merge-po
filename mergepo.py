@@ -47,7 +47,7 @@ class MergePOEntry:
 
     def __lt__(self, other: "MergePOEntry"):
         return self.__key() < other.__key()
-    
+
     # functions to check if a specific part of the entry matches a regex
     def _occurrences_match(self, regex: str):
         matching_occurrences = MergePOEntry.filter_occurrences(self.entry.occurrences, regex)
@@ -60,7 +60,7 @@ class MergePOEntry:
 
     def _msgstr_matches(self, regex: str):
         return bool(re.search(regex, self.entry.msgstr))
-    
+
     def matches(self, regex: str):
         """
         Whether the entry matches a regex
@@ -158,7 +158,19 @@ class MergePOEntry:
 
 
 class MergePO:
-    def __init__(self, base_path: str, output_path: Union[str, None], external_paths: "list[str]", exported_path: Union[str, None], regex: str, sort_entries: bool, sort_references: bool, interactive_translation: bool, translations_glob: Union[str, None], verbose: bool):
+    def __init__(
+        self,
+        base_path: str,
+        output_path: Union[str, None],
+        external_paths: "list[str]",
+        exported_path: Union[str, None],
+        regex: str,
+        sort_entries: bool,
+        sort_references: bool,
+        interactive_translation: bool,
+        translations_glob: Union[str, None],
+        verbose: bool,
+    ):
         self.base_path = base_path
         self.base_pofile = pofile(self.base_path)
         self.output_path = output_path or base_path
@@ -204,7 +216,7 @@ class MergePO:
 
             # filter duplicates again because some msgstrs may have been changed to be same as other entries
             self.filter_duplicates()
-        
+
         if self.interactive_translation:
             self.translate_interactively()
             self.filter_duplicates()
@@ -383,12 +395,15 @@ class MergePO:
             try:
                 for entry in pofile(path):
                     normalized_msgid = MergePOEntry.get_normalized_msgid(entry.msgid)
-                    if normalized_msgid in suggested_msgstrs_by_msgid and entry.msgstr not in suggested_msgstrs_by_msgid[normalized_msgid]:
+                    if (
+                        normalized_msgid in suggested_msgstrs_by_msgid
+                        and entry.msgstr not in suggested_msgstrs_by_msgid[normalized_msgid]
+                    ):
                         suggested_msgstrs_by_msgid[normalized_msgid].append(entry.msgstr)
             except OSError:
                 # PO syntax error in the file raised an exception
                 pass
-        
+
         # filter out msgids without multiple suggestions
         suggested_msgstrs_by_msgid = {
             msgid: msgstrs for msgid, msgstrs in suggested_msgstrs_by_msgid.items() if len(msgstrs) > 1
@@ -398,11 +413,11 @@ class MergePO:
         for entry in matched_entries:
             normalized_msgid = MergePOEntry.get_normalized_msgid(entry.entry.msgid)
             if len(suggested_msgstrs_by_msgid.get(normalized_msgid, [])) > 1:
-                suggestions = [f'\'{msgstr}\'' for msgstr in suggested_msgstrs_by_msgid[normalized_msgid]]
+                suggestions = [f"'{msgstr}'" for msgstr in suggested_msgstrs_by_msgid[normalized_msgid]]
                 _, j = pick(
-                    [f'{m} (Original)' if k == 0 else m for k, m in enumerate(suggestions)],
-                    f'TRANSLATION SUGGESTION ({i} of {len(suggested_msgstrs_by_msgid)})\n\nThe entry with following msgid:\n\n\'{entry.entry.msgid}\'\n\nmay be translated as one of the following:\n\n',
-                    indicator='=>'
+                    [f"{m} (Original)" if k == 0 else m for k, m in enumerate(suggestions)],
+                    f"TRANSLATION SUGGESTION ({i} of {len(suggested_msgstrs_by_msgid)})\n\nThe entry with following msgid:\n\n'{entry.entry.msgid}'\n\nmay be translated as one of the following:\n\n",
+                    indicator="=>",
                 )
                 if isinstance(j, int) and j != 0:
                     entry.entry.msgstr = suggested_msgstrs_by_msgid[normalized_msgid][j]
