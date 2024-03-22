@@ -333,7 +333,7 @@ class MergePO:
             while len(entries) > 1:
                 selected = pick(
                     [f"{entry.entry.msgstr}" for entry in entries],
-                    f"ENTRY MERGE SUGGESTION ({i + 1} of {len(entries_by_msgid)})\n\nThe entries with the following msgstrs have the same msgid:\n\n'{msgid}'\n\nDo you want to merge any of them? Select the ones you want to be merged and removed and then select the entry to merge into LAST or leave the selection empty to stop merging for this msgid\n(press SPACE to mark, ENTER to continue/skip)",
+                    f"ENTRY MERGE SUGGESTION ({i + 1} of {len(entries_by_msgid)})\n\nThe entries with the following msgstrs have the same msgid:\n\n'{msgid}'\n\nDo you want to merge any of them? Select the ones you want to be merged and removed and then select the entry to merge into LAST\nor leave the selection empty to stop merging for this msgid\n(press SPACE to mark, ENTER to continue/skip)",
                     indicator="=>",
                     multiselect=True,
                 )
