@@ -7,6 +7,7 @@ but by the repetition of slowly destructive little things.
 import argparse
 from enum import Enum
 import re
+from typing import Union
 
 from pick import pick
 from polib import pofile, POEntry, POFile
@@ -29,7 +30,7 @@ class MergePOEntry:
         self.source = source
         self.original_occurrences = [occurrence for occurrence in entry.occurrences]
         self.original_msgstr = entry.msgstr
-        self.removal_reason = None
+        self.removal_reason: Union[str, None] = None
 
     def __key(self):
         return self.entry.msgid, self.entry.msgstr
@@ -247,12 +248,12 @@ class MergePO:
     def add_base_entries(self):
         for entry in self.entries:
             if entry.is_base_entry():
-                self.output_entries.append(MergePOEntry(entry.entry, entry.source))
+                self.output_entries.append(entry)
 
     def add_external_entries(self):
         for entry in self.entries:
             if entry.is_external_entry() and self._is_matched_entry(entry):
-                self.output_entries.append(MergePOEntry(entry.entry, entry.source))
+                self.output_entries.append(entry)
 
     def add_exported_entries(self):
         entries_by_msgid = self._group_output_entries_by_msgid()
@@ -262,7 +263,7 @@ class MergePO:
                 if matching_output_entries:
                     MergePOEntry.match_occurrences_multi(entry, matching_output_entries)
                 else:
-                    self.output_entries.append(MergePOEntry(entry.entry, entry.source))
+                    self.output_entries.append(entry)
 
     def filter_duplicates(self):
         """
@@ -277,6 +278,7 @@ class MergePO:
                 added_entries[key] = entry
             else:
                 added_entries[key].merge_occurrences(entry)
+                entry.removal_reason = 'Duplicate entry'
         self.output_entries = output_entries
 
     def filter_duplicate_occurrences(self):
@@ -300,6 +302,8 @@ class MergePO:
         for entry in self.output_entries:
             if not self._is_matched_entry(entry) or entry.entry.msgid in exported_matched_msgids:
                 output_entries.append(entry)
+            else:
+                entry.removal_reason = 'Not in exported file'
         self.output_entries = output_entries
 
     def filter_no_occurrences(self):
@@ -310,6 +314,8 @@ class MergePO:
         for entry in self.output_entries:
             if not self._is_matched_entry(entry) or entry.entry.occurrences:
                 output_entries.append(entry)
+            else:
+                entry.removal_reason = 'No references'
         self.output_entries = output_entries
 
     def suggest_merge_same_msgid(self):
@@ -343,6 +349,7 @@ class MergePO:
                     entry = entries[j]
                     destination.merge_occurrences(entry)
                     removed_entries.add(entry)
+                    entry.removal_reason = 'Merged with another entry'
                     removed_indices.add(j)
                 entries = [entry for j, entry in enumerate(entries) if j not in removed_indices]
         self.output_entries = [entry for entry in self.output_entries if entry not in removed_entries]
@@ -394,7 +401,7 @@ class MergePO:
         # Log removed entries table
         data = []
         for entry in self.entries:
-            if entry.removal_reason:
+            if entry.removal_reason and entry.is_base_entry():
                 removed_entries_count += 1
                 data.append([entry.entry.msgid, entry.entry.msgstr, entry.removal_reason])
 
