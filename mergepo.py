@@ -22,7 +22,7 @@ class MergePOEntrySource(Enum):
 
 class MergePOEntry:
     """
-    Encapsulates entries in a po file
+    Encapsulates entries in a PO file
     """
 
     def __init__(self, entry: POEntry, source: MergePOEntrySource):
@@ -46,6 +46,25 @@ class MergePOEntry:
 
     def __lt__(self, other: "MergePOEntry"):
         return self.__key() < other.__key()
+
+    # functions to check if a specific part of the entry matches a regex
+    def _occurrences_match(self, regex: str):
+        matching_occurrences = MergePOEntry.filter_occurrences(self.entry.occurrences, regex)
+
+        # empty occurrences are always matched
+        return matching_occurrences or not self.entry.occurrences
+
+    def _msgid_matches(self, regex: str):
+        return bool(re.search(regex, self.entry.msgid))
+
+    def _msgstr_matches(self, regex: str):
+        return bool(re.search(regex, self.entry.msgstr))
+    
+    def matches(self, regex: str):
+        """
+        Whether the entry matches a regex
+        """
+        return self._occurrences_match(regex) or self._msgid_matches(regex) or self._msgstr_matches(regex)
 
     def remove_duplicate_occurrences(self):
         # used dict keys to maintain list order
@@ -132,21 +151,6 @@ class MergePOEntry:
     def filter_occurrences(occurrences: "list[tuple[str, int]]", regex: str):
         return [o for o in occurrences if re.search(regex, o[0])]
 
-    # functions to check if a specific part of the entry matches a regex
-    @staticmethod
-    def occurrences_match(entry: "MergePOEntry", regex: str):
-        matching_occurrences = MergePOEntry.filter_occurrences(entry.entry.occurrences, regex)
-
-        # empty occurrences are always matched
-        return matching_occurrences or not entry.entry.occurrences
-
-    @staticmethod
-    def msgid_matches(entry: "MergePOEntry", regex: str):
-        return bool(re.search(regex, entry.entry.msgid))
-
-    @staticmethod
-    def msgstr_matches(entry: "MergePOEntry", regex: str):
-        return bool(re.search(regex, entry.entry.msgstr))
 
 
 class MergePO:
@@ -166,7 +170,6 @@ class MergePO:
         self.entries: list[MergePOEntry] = []
         self.output_entries: list[MergePOEntry] = []
 
-        self.entry_matches = MergePOEntry.occurrences_match
         self.matched_msgids: set[str] = set()
 
         self.run()
@@ -242,7 +245,7 @@ class MergePO:
 
     def find_matched_msgids(self):
         for entry in self.entries:
-            if self.entry_matches(entry, self.regex):
+            if entry.matches(self.regex):
                 self.matched_msgids.add(entry.entry.msgid)
 
     def add_base_entries(self):
