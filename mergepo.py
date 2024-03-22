@@ -434,7 +434,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "-o", "--output-path", help="Output file path, if not given defaults to base path (replaces original file)"
     )
-    parser.add_argument("-m", "--external-paths", nargs="+", help="External files paths", default=[])
+    parser.add_argument("-x", "--external-paths", nargs="+", help="External files paths", default=[])
     parser.add_argument("-e", "--exported-path", help="Exported file path")
     parser.add_argument(
         "-r", "--regex", help="Match only entries that have references matching this regex. Default: all", default="."
