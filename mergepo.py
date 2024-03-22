@@ -3,222 +3,177 @@ The happiness of most people is not ruined by great catastrophes or fatal errors
 but by the repetition of slowly destructive little things.
     - Ernest Dimnet
 """
+
 import argparse
+from enum import Enum
 import re
-from collections import defaultdict
 
 from pick import pick
-from polib import pofile
-from termcolor import colored
-import os
+from polib import pofile, POEntry, POFile
+from tabulate import tabulate
 
 
-# functions to detect the type of po line
-def is_reference(line):
-    return line.startswith('#:')
+class MergePOEntrySource(Enum):
+    BASE = 0
+    EXTERNAL = 1
+    EXPORTED = 2
 
 
-def is_msgstr(line):
-    return line.startswith('msgstr')
-
-
-def is_msg_continued(line):
-    return line.startswith('"')
-
-
-def occurrence_to_reference(occurrence):
-    """
-    Converts an occurrence tuple to a reference line
-    :param occurrence:
-    :return:
-    """
-    return '#: ' + (f'{occurrence[0]}:{occurrence[1]}' if occurrence[1] else occurrence[0])
-
-
-def msgstr_to_line(msgstr):
-    return f'msgstr "{msgstr}"'
-
-
-def filter_occurrences(occurrences, regex):
-    """
-    Returns occurrences that match the regex
-    :param occurrences:
-    :param regex:
-    :return:
-    """
-    return [o for o in occurrences if re.search(regex, occurrence_to_reference(o))]
-
-
-def find_po_files(path, regex='.'):
-    result = []
-    for root, dirs, files in os.walk(path):
-        for file in files:
-            absolute_path = os.path.join(str(root), file)
-            if file.endswith('.po') and re.search(regex, absolute_path):
-                result.append(absolute_path)
-    return result
-
-
-class POMergerEntry:
+class MergePOEntry:
     """
     Encapsulates entries in a po file
     """
 
-    def __init__(self, entry, source_path):
+    def __init__(self, entry: POEntry, source: MergePOEntrySource):
         self.entry = entry
-        self.source_path = source_path
+        self.source = source
+        self.original_occurrences = [occurrence for occurrence in entry.occurrences]
+        self.original_msgstr = entry.msgstr
+        self.removal_reason = None
 
-        self.lines = []
-        self.occurrences = set(entry.occurrences)
-        self.new_msgstr = None
-
-    def __str__(self, sort_references=False):
-        reference_index = 0
-        references_lines = []
-        added_occurrences = set()
-        for line in self.lines:
-            if is_reference(line):
-                occurrence = self.entry.occurrences[reference_index]
-                if occurrence in self.occurrences and occurrence not in added_occurrences:
-                    references_lines.append(line)
-                reference_index += 1
-                added_occurrences.add(occurrence)
-
-        for occurrence in self.added_occurrences:
-            references_lines.append(f'{occurrence_to_reference(occurrence)}\n')
-        if sort_references:
-            references_lines.sort()
-
-        references = ''.join(references_lines)
-        new_msgstr = f'{msgstr_to_line(self.new_msgstr)}\n'
-
-        result = ''
-        part_of_msgstr = False
-        were_references_added = was_new_msgstr_added = False
-        for line in self.lines:
-            write_line = True
-            part_of_msgstr = is_msgstr(line) or (part_of_msgstr and is_msg_continued(line))
-            if is_reference(line):
-                write_line = False
-                if not were_references_added:
-                    result += references
-                    were_references_added = True
-            if part_of_msgstr and self.new_msgstr:
-                write_line = False
-                if not was_new_msgstr_added:
-                    result += new_msgstr
-                    was_new_msgstr_added = True
-            if write_line:
-                result += line
-
-        return result
+    def __key(self):
+        return self.entry.msgid, self.entry.msgstr
 
     def __repr__(self):
-        return f'({self.entry.msgid}, {self.entry.msgstr})'
+        return str(self.__key())
 
     def __hash__(self):
         return hash(self.__key())
 
-    def __eq__(self, other):
-        if isinstance(other, POMergerEntry):
-            return self.__key() == other.__key()
-        return NotImplemented
+    def __eq__(self, other: "MergePOEntry"):
+        return self.__key() == other.__key()
 
-    def __lt__(self, other):
+    def __lt__(self, other: "MergePOEntry"):
         return self.__key() < other.__key()
 
-    @property
-    def added_occurrences(self):
-        old_occurrences = set(self.entry.occurrences)
-        return sorted([o for o in self.occurrences if o not in old_occurrences])
+    def remove_duplicate_occurrences(self):
+        # used dict keys to maintain list order
+        self.entry.occurrences = list(dict.fromkeys(self.entry.occurrences))
 
-    @property
-    def removed_occurrences(self):
-        added_occurrences = set()
-        removed_occurrences = []
-        for occurrence in self.entry.occurrences:
-            if occurrence not in self.occurrences or occurrence in added_occurrences:
-                removed_occurrences.append(occurrence)
-            added_occurrences.add(occurrence)
-        return removed_occurrences
-
-    def __key(self):
-        return self.entry.msgid, (self.new_msgstr or self.entry.msgstr)
-
-    def merge_occurrences(self, other):
+    def merge_occurrences(self, other: "MergePOEntry"):
         """
-        Merge occurrences of current object with another POMergerEntry object (union on occurrences)
-        :param other:
-        :return:
+        Union occurrences with another entry
         """
-        self.occurrences = self.occurrences.union(other.occurrences)
+        occurrences_set = set(self.entry.occurrences)
+        self.entry.occurrences.extend([o for o in other.entry.occurrences if o not in occurrences_set])
 
-    def match_occurrences(self, other, regex='.'):
+    def match_occurrences(self, other: "MergePOEntry"):
         """
-        Set occurrences of current object to match another POMergerEntry object's occurrences
-        (occurrences matching regex only)
-        :param other:
-        :param regex:
-        :return:
+        Set entry's occurrences to match occurrences of another entry
         """
-        filtered_self_occurrences = set(filter_occurrences(self.occurrences, regex))
-        self.occurrences = self.occurrences.union(other.occurrences) - (filtered_self_occurrences - other.occurrences)
+        self.entry.occurrences = other.entry.occurrences.copy()
 
-    def references_match_regex(self, regex, match_empty=True):
+    def is_base_entry(self):
+        return self.source == MergePOEntrySource.BASE
+
+    def is_external_entry(self):
+        return self.source == MergePOEntrySource.EXTERNAL
+
+    def is_exported_entry(self):
+        return self.source == MergePOEntrySource.EXPORTED
+
+    def describe_changes(self):
+        changes = []
+
+        # Tell if file was not originally in the base file
+        if self.is_external_entry():
+            changes.append('Added from external file')
+        if self.is_exported_entry():
+            changes.append('Added from exported file')
+
+        # Calculate added and removed occurrences
+        occurrences_set = set(self.entry.occurrences)
+        original_occurrences_set = set(self.original_occurrences)
+
+        added_occurrences = [o for o in self.entry.occurrences if o not in original_occurrences_set]
+        removed_occurrences = [o for o in self.original_occurrences if o not in occurrences_set]
+
+        if added_occurrences or removed_occurrences:
+            changes.append(f'Added {len(added_occurrences)} and removed {len(removed_occurrences)} references')
+
+        # Detect changed translation
+        if self.entry.msgstr != self.original_msgstr:
+            changes.append(f'Updated msgstr')
+
+        return ', '.join(changes) or None
+
+    @staticmethod
+    def match_occurrences_multi(source: "MergePOEntry", destinations: "list[MergePOEntry]"):
         """
-        Checks whether the entry matches the given regex
-        If match_empty is True then entries with empty occurrence list will be matched
-        :param regex:
-        :param match_empty:
-        :return:
+        Set destination entries to match the source entry's occurrences, giving choice in case of ambiguity
         """
-        occurrences = self.occurrences.union(self.entry.occurrences)
-        return any(filter_occurrences(occurrences, regex)) or (match_empty and not self.entry.occurrences)
+        if len(destinations) == 1:
+            return destinations[0].match_occurrences(source)
 
-    def msgid_matches_regex(self, regex, match_empty=True):
-        return bool(re.search(regex, self.entry.msgid)) or (match_empty and not self.entry.msgid)
+        # ambiguous occurrences are occurrences which are present in source but not present in any destination entry
+        # therefore, they're ambiguous because it is not clear which entry should be their destination
+        source_occurrences: set[tuple[str]] = set(source.entry.occurrences)
+        unambiguous_occurrences: set[tuple[str]] = set()
+        for entry in destinations:
+            new_occurrences: list[tuple[str]] = []
+            for occurrence in entry.entry.occurrences:
+                if occurrence in source_occurrences:
+                    new_occurrences.append(occurrence)
+                    unambiguous_occurrences.add(occurrence)
+            entry.entry.occurrences = new_occurrences
+
+        ambiguous_occurrences = [o for o in source.entry.occurrences if o not in unambiguous_occurrences]
+        for i, occurrence in enumerate(sorted(ambiguous_occurrences)):
+            _, j = pick(
+                [entry.entry.msgstr for entry in destinations],
+                f'REFERENCE AMBIGUITY ({i + 1} of {len(ambiguous_occurrences)})\n\nDuplicate msgid found: \'{source.entry.msgid}\'\nChoose a msgstr for the below reference:\n\n{occurrence[0]}',
+                indicator='=>',
+            )
+            if isinstance(j, int):  # added this condition to suppress pick return type warning
+                destinations[j].entry.occurrences.append(occurrence)
+
+    @staticmethod
+    def filter_occurrences(occurrences: "list[tuple[str, int]]", regex: str):
+        return [o for o in occurrences if re.search(regex, o[0])]
+
+    # functions to check if a specific part of the entry matches a regex
+    @staticmethod
+    def occurrences_match(entry: "MergePOEntry", regex: str):
+        matching_occurrences = MergePOEntry.filter_occurrences(entry.entry.occurrences, regex)
+
+        # empty occurrences are always matched
+        return matching_occurrences or not entry.entry.occurrences
+
+    @staticmethod
+    def msgid_matches(entry: "MergePOEntry", regex: str):
+        return bool(re.search(regex, entry.entry.msgid))
+
+    @staticmethod
+    def msgstr_matches(entry: "MergePOEntry", regex: str):
+        return bool(re.search(regex, entry.entry.msgstr))
 
 
-class POMerger:
+class MergePO:
     def __init__(self, base_path, output_path, **kwargs):
-        self.base_path = base_path
-        self.output_path = output_path or base_path
+        self.base_path: str = base_path
+        self.base_pofile: POFile = pofile(self.base_path)
+        self.output_path: str = output_path or base_path
+        self.external_paths: list[str] = kwargs.get('external_paths', [])
+        self.exported_path: str = kwargs.get('exported_path', None)
 
-        self.external_paths = kwargs.get('external_paths', [])
-        self.exported_path = kwargs.get('exported_path', None)
-        self.regex = kwargs.get('regex', '.')
-        self.translations_paths = kwargs.get('translations_paths', [])
-        self.translations_regex = kwargs.get('translations_regex', '.')
-        self.translate_new_only = kwargs.get('translate_new_only', False)
-        self.unmatch_references_regex = kwargs.get('unmatch_references_regex', None)
-        self.unmatch_msgid_regex = kwargs.get('unmatch_msgid_regex', None)
-        self.delete_references_regex = kwargs.get('delete_references_regex', None)
-        self.delete_msgid_regex = kwargs.get('delete_msgid_regex', None)
-        self.delete_matched_only = kwargs.get('delete_matched_only', False)
-        self.all_references = kwargs.get('all_references', False)
-        self.ignore_duplicates = kwargs.get('ignore_duplicates', False)
-        self.verbose_log = kwargs.get('verbose_log', False)
-        self.no_merge_suggestions = kwargs.get('no_merge_suggestions', False)
-        self.sort_entries = kwargs.get('sort_entries', False)
-        self.sort_references = kwargs.get('sort_references', False)
-        self.interactive_translation = kwargs.get('interactive_translation', False)
-        self.summary_only = kwargs.get('summary_only', False)
-        self.no_warnings = kwargs.get('no_warnings', False)
+        self.regex: str = kwargs.get('regex', '.')
+        self.sort_entries: bool = kwargs.get('sort_entries', False)
+        self.sort_references: bool = kwargs.get('sort_references', False)
+        self.interactive_translation: bool = kwargs.get('interactive_translation', False)
+        self.verbose: bool = kwargs.get('verbose', False)
 
-        self.entries = defaultdict(list)
-        self.matched_msgids = set()
-        self.output_entries = []
+        self.entries: list[MergePOEntry] = []
+        self.output_entries: list[MergePOEntry] = []
 
-        self.preamble = ''
-        self.added_entries, self.modified_entries, self.removed_entries = set(), set(), []
-        self.updated_translations_entries = set()
-        self.lines_added = self.lines_removed = 0
-        self.warnings = []
+        self.entry_matches = MergePOEntry.occurrences_match
+        self.matched_msgids: set[str] = set()
 
-        self.initialize()
+        self.run()
+        self.save_output_file()
+        self.describe_changes()
 
-    def initialize(self):
-        self.parse_entries()
+    def run(self):
+        self.find_entries()
         self.find_matched_msgids()
         self.add_base_entries()
         self.add_external_entries()
@@ -228,471 +183,268 @@ class POMerger:
             # filter first to prevent resolving ambiguity for entries that are not in the exported file
             self.filter_not_in_exported()
 
-        if not self.no_merge_suggestions:
-            self.suggest_merge_same_msgid()
+        self.suggest_merge_same_msgid()
 
         if self.exported_path:
             self.add_exported_entries()
 
-        if self.delete_msgid_regex:
-            self.delete_msgids()
-        if self.delete_references_regex:
-            self.delete_references()
+        self.filter_no_occurrences()
 
-        self.filter_no_references()
-
-        if self.translations_paths:
-            self.suggest_translations()
-
-            # filter duplicates again because some msgstrs may have been changed to be same as other entries
-            self.filter_duplicates()
-            
         if self.interactive_translation:
             self.translate_interactively()
             self.filter_duplicates()
 
+        self.filter_duplicate_occurrences()
+
         if self.sort_entries:
             self.output_entries.sort()
 
-        self.calculate_statistics()
-        self.add_extra_warnings()
+        if self.sort_references:
+            self.sort_occurrences()
 
-    def parse_entries(self):
-        """
-        Parses entries from all paths into POMergerEntry objects
-        """
-        paths = [self.base_path] + self.external_paths + ([self.exported_path] if self.exported_path else [])
-        for path in paths:
-            for entry in pofile(path):
-                merger_entry = POMergerEntry(entry, path)
-                self.entries[path].append(merger_entry)
+    def _is_matched_entry(self, entry: MergePOEntry):
+        return entry.entry.msgid in self.matched_msgids
 
-        self.parse_entries_lines()
+    def _group_output_entries_by_msgid(self):
+        result: dict[str, list[MergePOEntry]] = {}
+        for entry in self.output_entries:
+            if entry.entry.msgid in result:
+                result[entry.entry.msgid].append(entry)
+            else:
+                result[entry.entry.msgid] = [entry]
+        return result
 
-    def parse_entries_lines(self):
+    def _group_output_entries_by_msgid_msgstr(self):
+        result: dict[tuple[str], list[MergePOEntry]] = {}
+        for entry in self.output_entries:
+            key = (entry.entry.msgid, entry.entry.msgstr)
+            if key in result:
+                result[key].append(entry)
+            else:
+                result[key] = [entry]
+        return result
+
+    def find_entries(self):
         """
-        Find the lines of each of the parsed entries from their files
+        Find and convert all entries from all input files into entry objects
         """
-        for path, entries in self.entries.items():
-            entry_by_linenum = {entry.entry.linenum: entry for entry in entries}
-            with open(path, 'r', encoding='utf-8') as original_file:
-                entry = None
-                linenum = 1
-                for line in original_file:
-                    entry = entry_by_linenum.get(linenum, entry)
-                    if entry:
-                        entry.lines.append(line)
-                    elif path == self.base_path:
-                        self.preamble += line
-                    linenum += 1
+        for entry in self.base_pofile:
+            self.entries.append(MergePOEntry(entry, MergePOEntrySource.BASE))
+
+        for external_path in self.external_paths:
+            for entry in pofile(external_path):
+                self.entries.append(MergePOEntry(entry, MergePOEntrySource.EXTERNAL))
+
+        if self.exported_path:
+            for entry in pofile(self.exported_path):
+                self.entries.append(MergePOEntry(entry, MergePOEntrySource.EXPORTED))
 
     def find_matched_msgids(self):
-        """
-        Find msgids that are matched
-        """
-        unmatched_msgids = set()
-        for path, entries in self.entries.items():
-            for merger_entry in entries:
-                if merger_entry.references_match_regex(self.regex):
-                    self.matched_msgids.add(merger_entry.entry.msgid)
-
-                msgid_unmatch = self.unmatch_msgid_regex and merger_entry.msgid_matches_regex(
-                    self.unmatch_msgid_regex, match_empty=False
-                )
-                references_unmatch = self.unmatch_references_regex and merger_entry.references_match_regex(
-                    self.unmatch_references_regex, match_empty=False
-                )
-                if msgid_unmatch or references_unmatch:
-                    unmatched_msgids.add(merger_entry.entry.msgid)
-
-        self.matched_msgids -= unmatched_msgids
-        for msgid in sorted(unmatched_msgids):
-            self.warnings.append(f'The following msgid has been unmatched: {msgid}')
+        for entry in self.entries:
+            if self.entry_matches(entry, self.regex):
+                self.matched_msgids.add(entry.entry.msgid)
 
     def add_base_entries(self):
-        for base_entry in self.entries[self.base_path]:
-            self.output_entries.append(base_entry)
+        for entry in self.entries:
+            if entry.is_base_entry():
+                self.output_entries.append(MergePOEntry(entry.entry, entry.source))
 
     def add_external_entries(self):
-        regex = self.regex if not self.all_references else '.'
-        for path in self.external_paths:
-            for external_entry in filter(lambda e: e.entry.msgid in self.matched_msgids, self.entries[path]):
-                external_entry.occurrences = set(filter_occurrences(external_entry.occurrences, regex))
-                self.output_entries.append(external_entry)
+        for entry in self.entries:
+            if entry.is_external_entry() and self._is_matched_entry(entry):
+                self.output_entries.append(MergePOEntry(entry.entry, entry.source))
 
     def add_exported_entries(self):
-        output_entries_by_msgid = defaultdict(list)
-        for output_entry in self.output_entries:
-            output_entries_by_msgid[output_entry.entry.msgid].append(output_entry)
+        entries_by_msgid = self._group_output_entries_by_msgid()
+        for entry in self.entries:
+            if entry.is_exported_entry() and self._is_matched_entry(entry):
+                matching_output_entries = entries_by_msgid.get(entry.entry.msgid, [])
+                if matching_output_entries:
+                    MergePOEntry.match_occurrences_multi(entry, matching_output_entries)
+                else:
+                    self.output_entries.append(MergePOEntry(entry.entry, entry.source))
 
-        regex = self.regex if not self.all_references else '.'
-        for exported_entry in filter(lambda e: e.entry.msgid in self.matched_msgids, self.entries[self.exported_path]):
-            msgid = exported_entry.entry.msgid
-            exported_entry.occurrences = set(filter_occurrences(exported_entry.occurrences, regex))
-            matching_entries = output_entries_by_msgid[msgid]
-            if not matching_entries:
-                self.output_entries.append(exported_entry)
-            elif len(matching_entries) == 1:
-                matching_entries[0].match_occurrences(exported_entry, regex)
-            else:
-                self.match_multiple_entries(exported_entry, matching_entries, regex)
-
-    def match_multiple_entries(self, matcher_entry, matching_entries, regex):
+    def filter_duplicates(self):
         """
-        Match an entry's occurrences with a list of other entries, give choice where to add each new occurrence if
-        destination is ambiguous
+        Filter out entries which are duplicate in both msgid and msgstr
         """
-        ambiguous_occurrences = None
-        for matching_entry in matching_entries:
-            old_occurrences = matching_entry.occurrences
-            matching_entry.match_occurrences(matcher_entry, regex)
-            added_occurrences = matching_entry.occurrences - old_occurrences
-            matching_entry.occurrences -= added_occurrences
-
-            if ambiguous_occurrences is None:
-                ambiguous_occurrences = added_occurrences
+        output_entries: list[MergePOEntry] = []
+        added_entries: dict[tuple[str], MergePOEntry] = {}
+        for entry in self.output_entries:
+            key = (entry.entry.msgid, entry.entry.msgstr)
+            if not self._is_matched_entry(entry) or key not in added_entries:
+                output_entries.append(entry)
+                added_entries[key] = entry
             else:
-                ambiguous_occurrences = ambiguous_occurrences.intersection(added_occurrences)
+                added_entries[key].merge_occurrences(entry)
+        self.output_entries = output_entries
 
-        if self.ignore_duplicates and ambiguous_occurrences:
-            self.warnings.append(
-                f'Ignored ambiguous references for entries with duplicate msgids: \'{matcher_entry.entry.msgid}\'')
-        else:
-            for i, occurrence in enumerate(sorted(ambiguous_occurrences)):
-                _, j = pick(
-                    [e.entry.msgstr for e in matching_entries],
-                    f'REFERENCE AMBIGUITY ({i + 1} of {len(ambiguous_occurrences)})\n\nDuplicate msgid found:'
-                    f' \'{matcher_entry.entry.msgid}\'\nChoose a msgstr for the below reference:'
-                    f'\n\n{occurrence_to_reference(occurrence)}',
-                    indicator='=>'
-                )
-                matching_entries[j].occurrences.add(occurrence)
+    def filter_duplicate_occurrences(self):
+        """
+        Filter out duplicate occurrences for the same entry
+        """
+        for entry in self.output_entries:
+            if self._is_matched_entry(entry):
+                entry.remove_duplicate_occurrences()
+
+    def filter_not_in_exported(self):
+        """
+        Filter out entries with msgids not present in exported file
+        """
+        exported_matched_msgids: set[str] = set()
+        for entry in self.entries:
+            if entry.is_exported_entry() and self._is_matched_entry(entry):
+                exported_matched_msgids.add(entry.entry.msgid)
+
+        output_entries = []
+        for entry in self.output_entries:
+            if not self._is_matched_entry(entry) or entry.entry.msgid in exported_matched_msgids:
+                output_entries.append(entry)
+        self.output_entries = output_entries
+
+    def filter_no_occurrences(self):
+        """
+        Filter out entries with empty occurrences list
+        """
+        output_entries = []
+        for entry in self.output_entries:
+            if not self._is_matched_entry(entry) or entry.entry.occurrences:
+                output_entries.append(entry)
+        self.output_entries = output_entries
 
     def suggest_merge_same_msgid(self):
         """
-        Suggest to merge an entry's occurrences with another entry and remove it if they have the same msgid
+        Suggest to merge occurrences of entries with same msgids
         """
-        output_entries_by_msgid = defaultdict(list)
-        for output_entry in self.output_entries:
-            output_entries_by_msgid[output_entry.entry.msgid].append(output_entry)
-        output_entries_by_msgid = {
-            m: e for m, e in output_entries_by_msgid.items() if len(e) > 1 and m in self.matched_msgids
-        }
+        entries_by_msgid = {}
+        for msgid, entries in self._group_output_entries_by_msgid().items():
+            matched_entries = [entry for entry in entries if self._is_matched_entry(entry)]
+            if len(matched_entries) > 1:
+                entries_by_msgid[msgid] = matched_entries
 
-        removed_entries = set()
-        for i, (msgid, entries) in enumerate(output_entries_by_msgid.items()):
-            remaining_entries = [e for e in entries]
-            while len(remaining_entries) > 1:
+        removed_entries: set[MergePOEntry] = set()
+        for i, (msgid, entries) in enumerate(entries_by_msgid.items()):
+            while len(entries) > 1:
                 selected = pick(
-                    [f'{e.entry.msgstr}' for e in remaining_entries],
-                    f'ENTRY MERGE SUGGESTION ({i + 1} of {len(output_entries_by_msgid)})\n\nThe entries with'
-                    f' the following msgstrs have the same msgid:\n\n\'{msgid}\'\n\nDo you want to merge any of them?'
-                    f' Select the ones you want to be merged and removed and then select the entry to merge into LAST'
-                    f'\n(press SPACE to mark, ENTER to continue/skip)',
-                    indicator='=>', multiselect=True,
+                    [f'{entry.entry.msgstr}' for entry in entries],
+                    f'ENTRY MERGE SUGGESTION ({i + 1} of {len(entries_by_msgid)})\n\nThe entries with the following msgstrs have the same msgid:\n\n\'{msgid}\'\n\nDo you want to merge any of them? Select the ones you want to be merged and removed and then select the entry to merge into LAST or leave the selection empty to stop merging for this msgid\n(press SPACE to mark, ENTER to continue/skip)',
+                    indicator='=>',
+                    multiselect=True,
                 )
-                selected_indices = [j for _, j in selected]
+                selected_indices = []
+                if isinstance(selected, list):
+                    selected_indices = [j for _, j in selected]
                 if not selected_indices:
                     break
 
-                merge_into_entry = remaining_entries[selected_indices[-1]]
+                removed_indices: set[int] = set()
+                destination = entries[selected_indices[-1]]
                 for j in selected_indices[:-1]:
-                    merger_entry = remaining_entries[j]
-                    merge_into_entry.merge_occurrences(merger_entry)
-                    removed_entries.add(merger_entry)
-                    if merger_entry.source_path == self.base_path:
-                        self.removed_entries.append((merger_entry, 'Merged with another duplicate msgid entry'))
-
-                remaining_entries = [e for e in entries if e not in removed_entries]
-
-        self.output_entries = [e for e in self.output_entries if e not in removed_entries]
-
-    def filter_duplicates(self):
-        output_entries = []
-        added_entries = {}
-        for output_entry in self.output_entries:
-            is_base_entry = output_entry.source_path == self.base_path
-            is_duplicate = output_entry in added_entries
-
-            if is_duplicate:
-                added_entries[output_entry].merge_occurrences(output_entry)
-                if is_base_entry:
-                    self.removed_entries.append((output_entry, 'Duplicate entry'))
-            else:
-                output_entries.append(output_entry)
-                added_entries[output_entry] = output_entry
-
-        self.output_entries = output_entries
-
-    def filter_not_in_exported(self):
-        matched_exported_msgids = {
-            e.entry.msgid for e in self.entries[self.exported_path] if e.entry.msgid in self.matched_msgids
-        }
-        output_entries = []
-        for output_entry in self.output_entries:
-            msgid = output_entry.entry.msgid
-            is_base_entry = output_entry.source_path == self.base_path
-            is_matched = msgid in self.matched_msgids
-            not_in_exported = (is_matched or not is_base_entry) and msgid not in matched_exported_msgids
-
-            if not_in_exported:
-                if is_base_entry:
-                    self.removed_entries.append((output_entry, 'Not in exported file'))
-            else:
-                output_entries.append(output_entry)
-
-        self.output_entries = output_entries
-
-    def filter_no_references(self):
-        output_entries = []
-        for output_entry in self.output_entries:
-            is_base_entry = output_entry.source_path == self.base_path
-            no_references = len(output_entry.occurrences) == 0
-
-            if no_references:
-                if is_base_entry:
-                    self.removed_entries.append((output_entry, 'No references'))
-            else:
-                output_entries.append(output_entry)
-
-        self.output_entries = output_entries
-
-    def delete_msgids(self):
-        output_entries = []
-        for output_entry in self.output_entries:
-            is_base_entry = output_entry.source_path == self.base_path
-            is_matched = not self.delete_matched_only or output_entry.entry.msgid in self.matched_msgids
-            to_delete = is_matched and output_entry.msgid_matches_regex(self.delete_msgid_regex)
-
-            if to_delete:
-                if is_base_entry:
-                    self.removed_entries.append((output_entry, 'Deleted'))
-            else:
-                output_entries.append(output_entry)
-
-        self.output_entries = output_entries
-
-    def delete_references(self):
-        for output_entry in self.output_entries:
-            is_matched = not self.delete_matched_only or output_entry.entry.msgid in self.matched_msgids
-            if not is_matched:
-                continue
-            to_delete_references = set(filter_occurrences(output_entry.occurrences, self.delete_references_regex))
-            output_entry.occurrences -= to_delete_references
-
-    def calculate_statistics(self):
-        for merger_entry, _ in self.removed_entries:
-            self.lines_removed += len(merger_entry.lines)
-
-        for output_entry in self.output_entries:
-            if output_entry.source_path == self.base_path:
-                occurrences_added = len(output_entry.added_occurrences)
-                occurrences_removed = len(output_entry.removed_occurrences)
-                self.lines_added += occurrences_added
-                self.lines_removed += occurrences_removed
-                if occurrences_added or occurrences_removed:
-                    self.modified_entries.add(output_entry)
-            else:
-                self.added_entries.add(output_entry)
-                self.lines_added += output_entry.__str__().count('\n')
-            if output_entry.new_msgstr:
-                self.updated_translations_entries.add(output_entry)
-
-    def add_extra_warnings(self):
-        output_entries_by_msgstr = defaultdict(list)
-        for output_entry in self.output_entries:
-            output_entries_by_msgstr[output_entry.entry.msgstr].append(output_entry)
-        for msgstr, entries in output_entries_by_msgstr.items():
-            if len(entries) > 1 and any(e.entry.msgid in self.matched_msgids for e in entries):
-                msgids = ', '.join([f'\'{e.entry.msgid}\'' for e in entries])
-                self.warnings.append(f'Entries with the following msgids have the same msgstr \'{msgstr}\': {msgids}')
-
-    def suggest_translations(self):
-        entries = [e for e in self.output_entries if not self.translate_new_only or e.source_path != self.base_path]
-        if not entries:
-            return
-
-        po_files = set()
-        for path in self.translations_paths:
-            po_files.update(find_po_files(path, self.translations_regex))
-
-        suggested_msgstrs_by_msgid = {e.entry.msgid.strip().lower(): {e.entry.msgstr} for e in entries}
-        for po_file in po_files:
-            try:
-                for entry in pofile(po_file):
-                    msgid = entry.msgid.strip().lower()
-                    if msgid in suggested_msgstrs_by_msgid:
-                        suggested_msgstrs_by_msgid[msgid].add(entry.msgstr)
-            except OSError:
-                self.warnings.append(
-                    f'The following translation file was partly processed due to a PO syntax error: {po_file}')
-
-        suggested_msgstrs_by_entry = {}
-        for merger_entry in entries:
-            msgid = merger_entry.entry.msgid.strip().lower()
-            if msgid in suggested_msgstrs_by_msgid and len(suggested_msgstrs_by_msgid[msgid]) > 1:
-                suggested_msgstrs_by_entry[merger_entry] = suggested_msgstrs_by_msgid[msgid]
-
-        for i, (merger_entry, suggested_msgstrs) in enumerate(suggested_msgstrs_by_entry.items()):
-            suggestions = ([merger_entry.entry.msgstr]
-                           + sorted([m for m in suggested_msgstrs if m != merger_entry.entry.msgstr]))
-            _, j = pick(
-                [f'{m} (Original)' if k == 0 else m for k, m in enumerate(suggestions)],
-                f'TRANSLATION SUGGESTION ({i + 1} of {len(suggested_msgstrs_by_entry)})\n\n'
-                f'The entry with following msgid:\n\n\'{merger_entry.entry.msgid}\'\n\nmay be translated as'
-                f' one of the following:\n\n',
-                indicator='=>'
-            )
-            if j != 0:
-                merger_entry.new_msgstr = suggestions[j]
+                    entry = entries[j]
+                    destination.merge_occurrences(entry)
+                    removed_entries.add(entry)
+                    removed_indices.add(j)
+                entries = [entry for j, entry in enumerate(entries) if j not in removed_indices]
+        self.output_entries = [entry for entry in self.output_entries if entry not in removed_entries]
 
     def translate_interactively(self):
-        matched_entries = [e for e in self.output_entries if e.entry.msgid in self.matched_msgids]
-        for i, merger_entry in enumerate(matched_entries):
+        matched_entries = [entry for entry in self.output_entries if self._is_matched_entry(entry)]
+        for i, entry in enumerate(matched_entries):
             print(
-                f'INTERACTIVE TRANSLATION ({i + 1} of {len(matched_entries)})\n\n'
-                f'Enter translation for the entry with the below msgid and msgstr '
-                f'or leave the input empty to leave its msgstr as it is\n\n'
-                f'\'{merger_entry.entry.msgid}\' -> \'{merger_entry.new_msgstr or merger_entry.entry.msgstr}\'\n\n'
+                f'INTERACTIVE TRANSLATION ({i + 1} of {len(matched_entries)})\n\nEnter translation for the entry with the below msgid and msgstr or leave the input empty to leave its msgstr as it is\n\n\'{entry.entry.msgid}\' -> \'{entry.entry.msgstr}\'\n\n'
             )
             new_msgstr = input(': ')
             if new_msgstr:
-                merger_entry.new_msgstr = new_msgstr
+                entry.entry.msgstr = new_msgstr
             print('\n')
 
-    def run(self):
-        if not self.summary_only:
-            for merger_entry, removal_reason in self.removed_entries:
-                self.log_entry(merger_entry, removal_reason)
-        with open(self.output_path, 'w', encoding='utf-8') as output_file:
-            content = ''
-            content += self.preamble
-            for i, entry in enumerate(self.output_entries):
-                entry_string = entry.__str__(sort_references=self.sort_references).strip()
+    def sort_occurrences(self):
+        for entry in self.output_entries:
+            if self._is_matched_entry(entry):
+                entry.entry.occurrences.sort()
 
-                if i != 0:
-                    content += '\n\n'
-                content += entry_string
+    def describe_changes(self):
+        if self.sort_entries:
+            print(f'Sorted entries')
+        if self.sort_references:
+            print(f'Sorted references')
 
-                if not self.summary_only:
-                    self.log_entry(entry)
+        added_entries_count = modified_entries_count = removed_entries_count = 0
 
-            output_file.write(content)
-
-        if not self.summary_only and not self.no_warnings:
-            for warning in self.warnings:
-                print(colored(warning, 'yellow'))
-        if self.lines_added == self.lines_removed == 0:
-            print('No changes done, original file is identical to output file')
-        else:
-            self.log_statistics()
-
-    def log_entry(self, merger_entry, removal_reason=None):
-        state = 'Unaffected'
-        linenum = str(merger_entry.entry.linenum) if merger_entry.source_path == self.base_path else 'NEW'
-        msgid = colored(merger_entry.entry.msgid, 'light_grey')
-        comment = ''
-        log_entry = True
-
-        if merger_entry.source_path == self.base_path:
-            if removal_reason:
-                state = colored('Removed', 'red')
-                linenum = colored(linenum, 'red')
-                comment = f' ({colored(removal_reason, "red")})'
-            elif merger_entry in self.modified_entries:
-                state = colored('Modified', 'cyan')
-                linenum = colored(linenum, 'cyan')
-
-                added = colored(f'+{len(merger_entry.added_occurrences)} references', 'green')
-                removed = colored(f'-{len(merger_entry.removed_occurrences)} references', 'red')
-                comment = f' ({added}, {removed})'
-            elif not self.verbose_log:
-                log_entry = False
-        else:
-            state = colored('Added', 'green')
-            linenum = colored(linenum, 'green')
-            if merger_entry.source_path == self.exported_path:
-                comment = 'Exported file'
-            else:
-                if len(self.external_paths) == 1:
-                    comment = 'External file'
+        # Log output entries table
+        data = []
+        for entry in self.output_entries:
+            changes = entry.describe_changes()
+            if changes:
+                if not entry.is_base_entry():
+                    added_entries_count += 1
                 else:
-                    comment = f'External file #{self.external_paths.index(merger_entry.source_path) + 1}'
-            comment = f' ({colored(comment, "green")})'
+                    modified_entries_count += 1
+            if self.verbose or changes:
+                data.append([entry.entry.msgid, entry.entry.msgstr, entry.describe_changes()])
 
-        if not removal_reason and merger_entry.new_msgstr:
-            comment += f' ({colored("Translation updated", "cyan")})'
+        headers = ['Msgid', 'Msgstr', 'Changes']
+        maxcolwidths = [32, 32, 32]
 
-        if log_entry:
-            print(f'{state} {linenum}{comment}: {msgid}')
+        if data:
+            print('Output file entries:')
+            print(tabulate(data, headers=headers, maxcolwidths=maxcolwidths, tablefmt='simple_grid', showindex=True))
+            print('\n')
 
-    def log_statistics(self):
-        entries = (
-            colored(str(len(self.added_entries)) + ' entries', 'green'),
-            colored(str(len(self.modified_entries)) + ' entries', 'cyan'),
-            colored(str(len(self.removed_entries)) + ' entries', 'red')
-        )
-        lines = (
-            colored(str(self.lines_added) + ' lines', 'green'),
-            colored(str(self.lines_removed) + ' lines', 'red')
-        )
-        print('Added {}, modified {} and removed {}'.format(*entries))
-        if self.translations_paths:
-            translations = colored("{} entries".format(len(self.updated_translations_entries)), 'cyan')
-            print(f'Updated translations for {translations}')
+        # Log removed entries table
+        data = []
+        for entry in self.entries:
+            if entry.removal_reason:
+                removed_entries_count += 1
+                data.append([entry.entry.msgid, entry.entry.msgstr, entry.removal_reason])
 
-        # commented until fixed
-        # print('Added {} and removed {}'.format(*lines))
+        headers = ['Msgid', 'Msgstr', 'Removal Reason']
+        maxcolwidths = [32, 32, 32]
+
+        if data:
+            print('Removed entries:')
+            print(tabulate(data, headers=headers, maxcolwidths=maxcolwidths, tablefmt='simple_grid', showindex=True))
+            print('\n')
+        
+        # Log summary
+        if added_entries_count or modified_entries_count or removed_entries_count:
+            print(f'Added {added_entries_count}, modified {modified_entries_count} and removed {removed_entries_count} entries')
+        else:
+            print('No changes from base file')
+
+    def save_output_file(self):
+        output_file = self.base_pofile
+        output_file.clear()
+        output_file.extend([entry.entry for entry in self.output_entries])
+        output_file.save(self.output_path)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-b', '--base-path', required=True, help='Base file path')
-    parser.add_argument('-o', '--output-path', help='Output file path, if not given defaults to base path (replaces original file)')
+    parser.add_argument(
+        '-o', '--output-path', help='Output file path, if not given defaults to base path (replaces original file)'
+    )
     parser.add_argument('-m', '--external-paths', nargs='+', help='External files paths', default=[])
     parser.add_argument('-e', '--exported-path', help='Exported file path')
-    parser.add_argument('-r', '--regex',
-                        help='Match only entries that have references matching this regex. Default: all', default='.')
-    parser.add_argument('-t', '--translations-paths', nargs='+',
-                        help='If any directory path is passed here then all the entries in all PO files'
-                             ' in the sub-folders of that directory will be used as translation suggestions'
-                             ' for the entries of the output file if the their msgids match', default=[])
-    parser.add_argument('-l', '--translations-regex',
-                        help='Match only translation files that have absolute paths matching this regex'
-                             ' (useful to select a certain language)', default='.')
-    parser.add_argument('-n', '--translate-new-only', action='store_true',
-                        help='Suggest translations for added (new) entries only')
-    parser.add_argument('-u', '--unmatch-references-regex',
-                        help='Entries that have references matching this regex will never be matched')
-    parser.add_argument('-U', '--unmatch-msgid-regex',
-                        help='Entries that have msgid matching this regex will never be matched')
-    parser.add_argument('-d', '--delete-references-regex',
-                        help='Delete reference lines matching this regex')
-    parser.add_argument('-D', '--delete-msgid-regex',
-                        help='Delete entries with msgid matching this regex')
-    parser.add_argument('--delete-matched-only', action='store_true',
-                        help='Delete only entries which are matched by --regex flag')
-    parser.add_argument('-a', '--all-references', action='store_true',
-                        help='If this flag is passed then all references of each matched entry will be matched')
-    parser.add_argument('-i', '--ignore-duplicates', action='store_true',
-                        help='If this flag is passed then no new references will be added'
-                             ' to entries with duplicate msgids')
-    parser.add_argument('-v', '--verbose-log', action='store_true',
-                        help='If this flag is passed then extra information is logged to the console')
-    parser.add_argument('--no-merge-suggestions', action='store_true',
-                        help='If this flag is passed then no suggestions for merging entries are shown'
-                             ' (all entries are kept)')
-    parser.add_argument('-S', '--sort-entries', action='store_true',
-                        help='If this flag is passed then the entries are sorted in the output file according'
-                             ' to msgid and msgstr')
-    parser.add_argument('-s', '--sort-references', action='store_true',
-                        help='If this flag is passed then the references of each entry are sorted in the output file')
-    parser.add_argument('-I', '--interactive-translation', action='store_true',
-                        help='Interactively translate matched entries')
-    parser.add_argument('--summary-only', action='store_true',
-                        help='Log only the summary of what has been done')
-    parser.add_argument('--no-warnings', action='store_true',
-                        help='Do not log any warning')
+    parser.add_argument(
+        '-r', '--regex', help='Match only entries that have references matching this regex. Default: all', default='.'
+    )
+    parser.add_argument(
+        '-S',
+        '--sort-entries',
+        action='store_true',
+        help='If this flag is passed then the entries are sorted in the output file according' ' to msgid and msgstr',
+    )
+    parser.add_argument(
+        '-s',
+        '--sort-references',
+        action='store_true',
+        help='If this flag is passed then the references of each entry are sorted in the output file',
+    )
+    parser.add_argument(
+        '-i', '--interactive-translation', action='store_true', help='Interactively translate matched entries'
+    )
+    parser.add_argument('-v', '--verbose', action='store_true', help='Log more information')
 
-    po_merger = POMerger(**vars(parser.parse_args()))
-    po_merger.run()
+    MergePO(**vars(parser.parse_args()))
