@@ -6,6 +6,7 @@ but by the repetition of slowly destructive little things.
 
 import argparse
 from enum import Enum
+import glob
 import re
 from typing import Union
 
@@ -46,7 +47,7 @@ class MergePOEntry:
 
     def __lt__(self, other: "MergePOEntry"):
         return self.__key() < other.__key()
-
+    
     # functions to check if a specific part of the entry matches a regex
     def _occurrences_match(self, regex: str):
         matching_occurrences = MergePOEntry.filter_occurrences(self.entry.occurrences, regex)
@@ -151,21 +152,25 @@ class MergePOEntry:
     def filter_occurrences(occurrences: "list[tuple[str, int]]", regex: str):
         return [o for o in occurrences if re.search(regex, o[0])]
 
+    @staticmethod
+    def get_normalized_msgid(msgid: str):
+        return msgid.strip().lower()
 
 
 class MergePO:
-    def __init__(self, base_path, output_path, **kwargs):
-        self.base_path: str = base_path
-        self.base_pofile: POFile = pofile(self.base_path)
-        self.output_path: str = output_path or base_path
-        self.external_paths: list[str] = kwargs.get("external_paths", [])
-        self.exported_path: str = kwargs.get("exported_path", None)
+    def __init__(self, base_path: str, output_path: Union[str, None], external_paths: "list[str]", exported_path: Union[str, None], regex: str, sort_entries: bool, sort_references: bool, interactive_translation: bool, translations_glob: Union[str, None], verbose: bool):
+        self.base_path = base_path
+        self.base_pofile = pofile(self.base_path)
+        self.output_path = output_path or base_path
+        self.external_paths = external_paths
+        self.exported_path = exported_path
 
-        self.regex: str = kwargs.get("regex", ".")
-        self.sort_entries: bool = kwargs.get("sort_entries", False)
-        self.sort_references: bool = kwargs.get("sort_references", False)
-        self.interactive_translation: bool = kwargs.get("interactive_translation", False)
-        self.verbose: bool = kwargs.get("verbose", False)
+        self.regex = regex
+        self.sort_entries = sort_entries
+        self.sort_references = sort_references
+        self.translations_glob = translations_glob
+        self.interactive_translation = interactive_translation
+        self.verbose = verbose
 
         self.entries: list[MergePOEntry] = []
         self.output_entries: list[MergePOEntry] = []
@@ -194,6 +199,12 @@ class MergePO:
 
         self.filter_no_occurrences()
 
+        if self.translations_glob:
+            self.suggest_translations()
+
+            # filter duplicates again because some msgstrs may have been changed to be same as other entries
+            self.filter_duplicates()
+        
         if self.interactive_translation:
             self.translate_interactively()
             self.filter_duplicates()
@@ -357,6 +368,46 @@ class MergePO:
                 entries = [entry for j, entry in enumerate(entries) if j not in removed_indices]
         self.output_entries = [entry for entry in self.output_entries if entry not in removed_entries]
 
+    def suggest_translations(self):
+        matched_entries = [entry for entry in self.output_entries if self._is_matched_entry(entry)]
+        if not matched_entries or not self.translations_glob:
+            return
+
+        suggested_msgstrs_by_msgid = {
+            MergePOEntry.get_normalized_msgid(entry.entry.msgid): [entry.entry.msgstr] for entry in matched_entries
+        }
+
+        # find PO files
+        po_files_paths = glob.glob(self.translations_glob, recursive=True)
+        for path in po_files_paths:
+            try:
+                for entry in pofile(path):
+                    normalized_msgid = MergePOEntry.get_normalized_msgid(entry.msgid)
+                    if normalized_msgid in suggested_msgstrs_by_msgid and entry.msgstr not in suggested_msgstrs_by_msgid[normalized_msgid]:
+                        suggested_msgstrs_by_msgid[normalized_msgid].append(entry.msgstr)
+            except OSError:
+                # PO syntax error in the file raised an exception
+                pass
+        
+        # filter out msgids without multiple suggestions
+        suggested_msgstrs_by_msgid = {
+            msgid: msgstrs for msgid, msgstrs in suggested_msgstrs_by_msgid.items() if len(msgstrs) > 1
+        }
+
+        i = 1
+        for entry in matched_entries:
+            normalized_msgid = MergePOEntry.get_normalized_msgid(entry.entry.msgid)
+            if len(suggested_msgstrs_by_msgid.get(normalized_msgid, [])) > 1:
+                suggestions = [f'\'{msgstr}\'' for msgstr in suggested_msgstrs_by_msgid[normalized_msgid]]
+                _, j = pick(
+                    [f'{m} (Original)' if k == 0 else m for k, m in enumerate(suggestions)],
+                    f'TRANSLATION SUGGESTION ({i} of {len(suggested_msgstrs_by_msgid)})\n\nThe entry with following msgid:\n\n\'{entry.entry.msgid}\'\n\nmay be translated as one of the following:\n\n',
+                    indicator='=>'
+                )
+                if isinstance(j, int) and j != 0:
+                    entry.entry.msgstr = suggested_msgstrs_by_msgid[normalized_msgid][j]
+                i += 1
+
     def translate_interactively(self):
         matched_entries = [entry for entry in self.output_entries if self._is_matched_entry(entry)]
         for i, entry in enumerate(matched_entries):
@@ -453,6 +504,9 @@ if __name__ == "__main__":
         "--sort-references",
         action="store_true",
         help="If this flag is passed then the references of each entry are sorted in the output file",
+    )
+    parser.add_argument(
+        "-t", "--translations-glob", help="Suggest translations for matched entries from PO files matching glob pattern"
     )
     parser.add_argument(
         "-i", "--interactive-translation", action="store_true", help="Interactively translate matched entries"
