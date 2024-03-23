@@ -35,7 +35,7 @@ class MergePOEntry:
         self.source_path = source_path
 
     def __key(self):
-        return self.source_path, self.entry.linenum
+        return self.entry.msgid, self.entry.msgstr, self.source_path, self.entry.linenum
 
     def __repr__(self):
         return str(self.__key())
