@@ -51,10 +51,10 @@ class MergePOEntry:
 
     # functions to check if a specific part of the entry matches a regex
     def _occurrences_match(self, regex: str):
-        matching_occurrences = MergePOEntry.filter_occurrences(self.entry.occurrences, regex)
+        matched_occurrences = MergePOEntry.filter_occurrences(self.entry.occurrences, regex)
 
         # empty occurrences are always matched
-        return matching_occurrences or not self.entry.occurrences
+        return matched_occurrences or not self.entry.occurrences
 
     def _msgid_matches(self, regex: str):
         return bool(re.search(regex, self.entry.msgid))
@@ -295,9 +295,9 @@ class MergePO:
         entries_by_msgid = self._group_output_entries_by_msgid()
         for entry in self.entries:
             if entry.is_exported_entry() and self._is_matched_entry(entry):
-                matching_output_entries = entries_by_msgid.get(entry.entry.msgid, [])
-                if matching_output_entries:
-                    MergePOEntry.match_occurrences_multi(entry, matching_output_entries)
+                matched_output_entries = entries_by_msgid.get(entry.entry.msgid, [])
+                if matched_output_entries:
+                    MergePOEntry.match_occurrences_multi(entry, matched_output_entries)
                 else:
                     self.output_entries.append(entry)
 
