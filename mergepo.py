@@ -26,15 +26,16 @@ class MergePOEntry:
     Encapsulates entries in a PO file
     """
 
-    def __init__(self, entry: POEntry, source: MergePOEntrySource):
+    def __init__(self, entry: POEntry, source: MergePOEntrySource, source_path: str):
         self.entry = entry
         self.source = source
         self.original_occurrences = [occurrence for occurrence in entry.occurrences]
         self.original_msgstr = entry.msgstr
         self.removal_reason: Union[str, None] = None
+        self.source_path = source_path
 
     def __key(self):
-        return self.entry.msgid, self.entry.msgstr
+        return self.source_path, self.entry.linenum
 
     def __repr__(self):
         return str(self.__key())
@@ -265,15 +266,15 @@ class MergePO:
         Find and convert all entries from all input files into entry objects
         """
         for entry in self.base_pofile:
-            self.entries.append(MergePOEntry(entry, MergePOEntrySource.BASE))
+            self.entries.append(MergePOEntry(entry, MergePOEntrySource.BASE, self.base_path))
 
         for external_path in self.external_paths:
             for entry in pofile(external_path):
-                self.entries.append(MergePOEntry(entry, MergePOEntrySource.EXTERNAL))
+                self.entries.append(MergePOEntry(entry, MergePOEntrySource.EXTERNAL, external_path))
 
         if self.exported_path:
             for entry in pofile(self.exported_path):
-                self.entries.append(MergePOEntry(entry, MergePOEntrySource.EXPORTED))
+                self.entries.append(MergePOEntry(entry, MergePOEntrySource.EXPORTED, self.exported_path))
 
     def find_matched_msgids(self):
         for entry in self.entries:
@@ -383,9 +384,9 @@ class MergePO:
                 for j in selected_indices[:-1]:
                     entry = entries[j]
                     destination.merge_occurrences(entry)
+                    removed_indices.add(j)
                     removed_entries.add(entry)
                     entry.removal_reason = "Merged with another entry"
-                    removed_indices.add(j)
                 entries = [entry for j, entry in enumerate(entries) if j not in removed_indices]
         self.output_entries = [entry for entry in self.output_entries if entry not in removed_entries]
 
@@ -394,8 +395,16 @@ class MergePO:
         if not matched_entries or not self.translations_glob:
             return
 
-        suggested_msgstrs_by_msgid = {
-            MergePOEntry.get_normalized_msgid(entry.entry.msgid): [entry.entry.msgstr] for entry in matched_entries
+        # group matched entries by normalized msgid
+        entries_by_normalized_msgid: dict[str, list[MergePOEntry]] = {}
+        for entry in matched_entries:
+            normalized_msgid = MergePOEntry.get_normalized_msgid(entry.entry.msgid)
+            if normalized_msgid in entries_by_normalized_msgid:
+                entries_by_normalized_msgid[normalized_msgid].append(entry)
+            else:
+                entries_by_normalized_msgid[normalized_msgid] = [entry]
+        suggested_msgstrs_by_msgid: dict[str, list[str]] = {
+            msgid: [] for msgid in entries_by_normalized_msgid
         }
 
         # find PO files
@@ -404,33 +413,34 @@ class MergePO:
             try:
                 for entry in pofile(path):
                     normalized_msgid = MergePOEntry.get_normalized_msgid(entry.msgid)
-                    if (
-                        normalized_msgid in suggested_msgstrs_by_msgid
-                        and entry.msgstr not in suggested_msgstrs_by_msgid[normalized_msgid]
-                    ):
+                    if normalized_msgid in suggested_msgstrs_by_msgid:
                         suggested_msgstrs_by_msgid[normalized_msgid].append(entry.msgstr)
             except OSError:
                 # PO syntax error in the file raised an exception
                 pass
 
-        # filter out msgids without multiple suggestions
-        suggested_msgstrs_by_msgid = {
-            msgid: msgstrs for msgid, msgstrs in suggested_msgstrs_by_msgid.items() if len(msgstrs) > 1
-        }
+        # filter out repeated suggestions and suggestions equal to original msgstr
+        suggestions_by_entry: dict[MergePOEntry, list[str]] = {}
+        for msgid, suggestions in suggested_msgstrs_by_msgid.items():
+            unique_suggestions: list[str] = []
+            added_suggestions = {entry.entry.msgstr for entry in entries_by_normalized_msgid[msgid]}
+            for msgstr in suggestions:
+                if msgstr not in added_suggestions:
+                    unique_suggestions.append(msgstr)
+                    added_suggestions.add(msgstr)
+            if unique_suggestions:
+                for entry in entries_by_normalized_msgid[msgid]:
+                    suggestions_by_entry[entry] = unique_suggestions
 
-        i = 1
-        for entry in matched_entries:
-            normalized_msgid = MergePOEntry.get_normalized_msgid(entry.entry.msgid)
-            if len(suggested_msgstrs_by_msgid.get(normalized_msgid, [])) > 1:
-                suggestions = [f"'{msgstr}'" for msgstr in suggested_msgstrs_by_msgid[normalized_msgid]]
-                _, j = pick(
-                    [f"{m} (Original)" if k == 0 else m for k, m in enumerate(suggestions)],
-                    f"TRANSLATION SUGGESTION ({i} of {len(suggested_msgstrs_by_msgid)})\n\nThe entry with following msgid:\n\n'{entry.entry.msgid}'\n\nmay be translated as one of the following:\n\n",
-                    indicator="=>",
-                )
-                if isinstance(j, int) and j != 0:
-                    entry.entry.msgstr = suggested_msgstrs_by_msgid[normalized_msgid][j]
-                i += 1
+        for i, (entry, suggestions) in enumerate(suggestions_by_entry.items()):
+            choices = [f"'{entry.entry.msgstr} (Original)'"] + [f"'{msgstr}'" for msgstr in suggestions]
+            _, j = pick(
+                choices,
+                f"TRANSLATION SUGGESTION ({i + 1} of {len(suggestions_by_entry)})\n\nThe entry with following msgid:\n\n'{entry.entry.msgid}'\n\nmay be translated as one of the following:\n\n",
+                indicator="=>",
+            )
+            if isinstance(j, int) and j != 0:
+                entry.entry.msgstr = suggestions[j - 1]
 
     def translate_interactively(self):
         matched_entries = [entry for entry in self.output_entries if self._is_matched_entry(entry)]
