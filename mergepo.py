@@ -11,7 +11,7 @@ import re
 from typing import Union
 
 from pick import pick
-from polib import pofile, POEntry, POFile
+from polib import pofile, POEntry
 from tabulate import tabulate
 
 
@@ -490,10 +490,12 @@ class MergePO:
             print("[Removed entries]")
             print(tabulate(data, headers=headers, maxcolwidths=maxcolwidths, tablefmt="simple_grid", showindex=True))
             print()
-        
+
         # Log repeated msgstrs
         data = [
-            [msgstr, len(entries)] for msgstr, entries in self._group_output_entries_by_msgstr().items() if len(entries) > 1
+            [msgstr, len(entries)]
+            for msgstr, entries in self._group_output_entries_by_msgstr().items()
+            if len(entries) > 1
         ]
         data.sort(key=lambda e: e[1], reverse=True)
 
