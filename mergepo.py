@@ -241,6 +241,15 @@ class MergePO:
                 result[entry.entry.msgid] = [entry]
         return result
 
+    def _group_output_entries_by_msgstr(self):
+        result: dict[str, list[MergePOEntry]] = {}
+        for entry in self.output_entries:
+            if entry.entry.msgstr in result:
+                result[entry.entry.msgstr].append(entry)
+            else:
+                result[entry.entry.msgstr] = [entry]
+        return result
+
     def _group_output_entries_by_msgid_msgstr(self):
         result: dict[tuple[str], list[MergePOEntry]] = {}
         for entry in self.output_entries:
@@ -463,9 +472,9 @@ class MergePO:
         maxcolwidths = [32, 32, 32]
 
         if data:
-            print("Output file entries:")
+            print("[Output file entries]")
             print(tabulate(data, headers=headers, maxcolwidths=maxcolwidths, tablefmt="simple_grid", showindex=True))
-            print("\n")
+            print()
 
         # Log removed entries table
         data = []
@@ -478,9 +487,23 @@ class MergePO:
         maxcolwidths = [32, 32, 32]
 
         if data:
-            print("Removed entries:")
+            print("[Removed entries]")
             print(tabulate(data, headers=headers, maxcolwidths=maxcolwidths, tablefmt="simple_grid", showindex=True))
-            print("\n")
+            print()
+        
+        # Log repeated msgstrs
+        data = [
+            [msgstr, len(entries)] for msgstr, entries in self._group_output_entries_by_msgstr().items() if len(entries) > 1
+        ]
+        data.sort(key=lambda e: e[1], reverse=True)
+
+        headers = ["Msgstr", "Frequency"]
+        maxcolwidths = [64, 32]
+
+        if data:
+            print("[Repeated Msgstrs]")
+            print(tabulate(data, headers=headers, maxcolwidths=maxcolwidths, tablefmt="simple_grid"))
+            print()
 
         # Log summary
         if added_entries_count or modified_entries_count or removed_entries_count:
