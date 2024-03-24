@@ -182,12 +182,16 @@ class MergePO:
         reset_excluded: bool,
     ):
         self.base_path = os.path.abspath(base_path)
+        self.base_pofile = pofile(self.base_path)
+        self.base_file_identifier = hashlib.sha1(
+            pickle.dumps((self.base_pofile.header, str(self.base_pofile.metadata_as_entry())))
+        ).hexdigest()
+
         self.output_path = os.path.abspath(output_path or base_path)
         self.external_paths = [os.path.abspath(path) for path in external_paths]
         self.exported_path = exported_path and os.path.abspath(exported_path)
 
-        hashed_base_path = hashlib.sha1(bytes(self.base_path, encoding='utf-8')).hexdigest()
-        self.persistent_data_path = os.path.join(PERSISTENT_DATA_PATH, hashed_base_path)
+        self.persistent_data_path = os.path.join(PERSISTENT_DATA_PATH, self.base_file_identifier)
         self.excluded_file_path = os.path.join(self.persistent_data_path, EXCLUDED_ENTRIES_FILE_NAME)
 
         self.regex = regex
@@ -296,7 +300,7 @@ class MergePO:
         """
         Find and convert all entries from all input files into entry objects
         """
-        for entry in pofile(self.base_path):
+        for entry in self.base_pofile:
             self.entries.append(MergePOEntry(entry, MergePOEntrySource.BASE))
 
         for external_path in self.external_paths:
@@ -457,7 +461,7 @@ class MergePO:
         for i, entry in enumerate(selection_entries):
             if i in selected_indices:
                 self.excluded_msgids.add(entry.entry.msgid)
-        
+
         self._dump_excluded_msgids()
 
     def suggest_translations(self):
