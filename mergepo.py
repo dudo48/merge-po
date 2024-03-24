@@ -8,7 +8,7 @@ import argparse
 from enum import Enum
 import glob
 import re
-from typing import Union
+from typing import Tuple, Union
 
 from pick import pick
 from polib import pofile, POEntry
@@ -26,19 +26,18 @@ class MergePOEntry:
     Encapsulates entries in a PO file
     """
 
-    def __init__(self, entry: POEntry, source: MergePOEntrySource, source_path: str):
+    def __init__(self, entry: POEntry, source: MergePOEntrySource):
         self.entry = entry
         self.source = source
         self.original_occurrences = [occurrence for occurrence in entry.occurrences]
         self.original_msgstr = entry.msgstr
         self.removal_reason: Union[str, None] = None
-        self.source_path = source_path
 
     def __key(self):
-        return self.entry.msgid, self.entry.msgstr, self.source_path, self.entry.linenum
+        return (self.entry.msgid, self.entry.msgstr, len(self.entry.occurrences))
 
     def __repr__(self):
-        return str(self.__key())
+        return f"MergePOEntry('{self.entry.msgid}', '{self.entry.msgstr}')"
 
     def __hash__(self):
         return hash(self.__key())
@@ -265,15 +264,15 @@ class MergePO:
         Find and convert all entries from all input files into entry objects
         """
         for entry in pofile(self.base_path):
-            self.entries.append(MergePOEntry(entry, MergePOEntrySource.BASE, self.base_path))
+            self.entries.append(MergePOEntry(entry, MergePOEntrySource.BASE))
 
         for external_path in self.external_paths:
             for entry in pofile(external_path):
-                self.entries.append(MergePOEntry(entry, MergePOEntrySource.EXTERNAL, external_path))
+                self.entries.append(MergePOEntry(entry, MergePOEntrySource.EXTERNAL))
 
         if self.exported_path:
             for entry in pofile(self.exported_path):
-                self.entries.append(MergePOEntry(entry, MergePOEntrySource.EXPORTED, self.exported_path))
+                self.entries.append(MergePOEntry(entry, MergePOEntrySource.EXPORTED))
 
     def find_matched_msgids(self):
         for entry in self.entries:
@@ -402,9 +401,7 @@ class MergePO:
                 entries_by_normalized_msgid[normalized_msgid].append(entry)
             else:
                 entries_by_normalized_msgid[normalized_msgid] = [entry]
-        suggested_msgstrs_by_msgid: dict[str, list[str]] = {
-            msgid: [] for msgid in entries_by_normalized_msgid
-        }
+        suggested_msgstrs_by_msgid: dict[str, list[str]] = {msgid: [] for msgid in entries_by_normalized_msgid}
 
         # find PO files
         po_files_paths = glob.glob(self.translations_glob, recursive=True)
@@ -419,7 +416,7 @@ class MergePO:
                 pass
 
         # filter out repeated suggestions and suggestions equal to original msgstr
-        suggestions_by_entry: dict[MergePOEntry, list[str]] = {}
+        entry_suggestions: list[Tuple[MergePOEntry, list[str]]] = []
         for msgid, suggestions in suggested_msgstrs_by_msgid.items():
             unique_suggestions: list[str] = []
             added_suggestions = {entry.entry.msgstr for entry in entries_by_normalized_msgid[msgid]}
@@ -429,13 +426,13 @@ class MergePO:
                     added_suggestions.add(msgstr)
             if unique_suggestions:
                 for entry in entries_by_normalized_msgid[msgid]:
-                    suggestions_by_entry[entry] = unique_suggestions
+                    entry_suggestions.append((entry, unique_suggestions))
 
-        for i, (entry, suggestions) in enumerate(suggestions_by_entry.items()):
+        for i, (entry, suggestions) in enumerate(entry_suggestions):
             choices = [f"'{entry.entry.msgstr} (Original)'"] + [f"'{msgstr}'" for msgstr in suggestions]
             _, j = pick(
                 choices,
-                f"TRANSLATION SUGGESTION ({i + 1} of {len(suggestions_by_entry)})\n\nThe entry with following msgid:\n\n'{entry.entry.msgid}'\n\nmay be translated as one of the following:\n\n",
+                f"TRANSLATION SUGGESTION ({i + 1} of {len(entry_suggestions)})\n\nThe entry with following msgid:\n\n'{entry.entry.msgid}'\n\nmay be translated as one of the following:\n\n",
                 indicator="=>",
             )
             if isinstance(j, int) and j != 0:
