@@ -173,7 +173,6 @@ class MergePO:
         verbose: bool,
     ):
         self.base_path = base_path
-        self.base_pofile = pofile(self.base_path)
         self.output_path = output_path or base_path
         self.external_paths = external_paths
         self.exported_path = exported_path
@@ -265,7 +264,7 @@ class MergePO:
         """
         Find and convert all entries from all input files into entry objects
         """
-        for entry in self.base_pofile:
+        for entry in pofile(self.base_path):
             self.entries.append(MergePOEntry(entry, MergePOEntrySource.BASE, self.base_path))
 
         for external_path in self.external_paths:
@@ -526,7 +525,8 @@ class MergePO:
             print("No changes from base file")
 
     def save_output_file(self):
-        output_file = self.base_pofile
+        # re-create pofile object of base file to get metadata
+        output_file = pofile(self.base_path)
         output_file.clear()
         output_file.extend([entry.entry for entry in self.output_entries])
         output_file.save(self.output_path)
