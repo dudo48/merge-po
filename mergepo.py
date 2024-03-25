@@ -179,7 +179,8 @@ class MergePO:
         translations_glob: Union[str, None],
         verbose: bool,
         exclude: bool,
-        reset_excluded: bool,
+        unexclude: bool,
+        reset_excluded: bool
     ):
         self.base_path = os.path.abspath(base_path)
         self.base_pofile = pofile(self.base_path)
@@ -201,6 +202,7 @@ class MergePO:
         self.interactive_translation = interactive_translation
         self.verbose = verbose
         self.exclude = exclude
+        self.unexclude = unexclude
         self.reset_excluded = reset_excluded
 
         self.entries: list[MergePOEntry] = []
@@ -225,6 +227,9 @@ class MergePO:
 
         if self.reset_excluded:
             self.reset_excluded_entries()
+
+        if self.unexclude:
+            self.unexclude_entries()
 
         if self.exclude:
             # filter before adding new excluded entries and after
@@ -445,18 +450,35 @@ class MergePO:
         The excluded entries persist between program runs.
         Excluded entries are always excluded regardless of whether or not they are matched.
         """
-        selection_entries = self.output_entries
-        options = [repr(entry.entry.msgid) for entry in selection_entries]
+        options = [repr(entry.entry.msgid) for entry in self.output_entries]
         title = f"ENTRY EXCLUSION\n\nSelect msgids of entries that you want to exclude from this file\n\nThe selected entries will be removed from and never added to the output file\nin further runs of the program for the same base file"
         selected = cast(
             "list[PICK_RETURN_T[str]]",
             pick(options=options, title=title, indicator=PICK_INDICATOR, multiselect=True)
         )
-        selected_indices = set([i for _, i in selected])
 
-        for i, entry in enumerate(selection_entries):
-            if i in selected_indices:
-                self.excluded_msgids.add(entry.entry.msgid)
+        for _, i in selected:
+            self.excluded_msgids.add(self.output_entries[i].entry.msgid)
+
+        self._dump_excluded_msgids()
+
+    def unexclude_entries(self):
+        """
+        Unexclude entries that were previously excluded
+        """
+        if not self.excluded_msgids:
+            return
+        
+        excluded_msgids = sorted(self.excluded_msgids)
+        options = [repr(msgid) for msgid in excluded_msgids]
+        title = f"ENTRY UNEXCLUSION\n\nSelect msgids of entries that you want to unexclude for this file"
+        selected = cast(
+            "list[PICK_RETURN_T[str]]",
+            pick(options=options, title=title, indicator=PICK_INDICATOR, multiselect=True)
+        )
+
+        for _, i in selected:
+            self.excluded_msgids.remove(excluded_msgids[i])
 
         self._dump_excluded_msgids()
 
@@ -629,6 +651,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("-v", "--verbose", action="store_true", help="Log more information")
     parser.add_argument("--exclude", action="store_true", help="Enters interactive selection mode for entries, where chosen entries will be removed and become excluded from ever being added according to this base file")
+    parser.add_argument("--unexclude", action="store_true", help="Interactively unexclude entries that were previously excluded")
     parser.add_argument("--reset-excluded", action="store_true", help="Reset the exclusion status of all entries")
 
     MergePO(**vars(parser.parse_args()))
