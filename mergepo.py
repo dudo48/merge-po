@@ -149,7 +149,7 @@ class MergePOEntry:
         ambiguous_occurrences = [o for o in source.entry.occurrences if o not in unambiguous_occurrences]
         for i, occurrence in enumerate(sorted(ambiguous_occurrences)):
             _, j = pick(
-                [f"'{entry.entry.msgstr}'" for entry in destinations],
+                [repr(entry.entry.msgstr) for entry in destinations],
                 f"REFERENCE AMBIGUITY ({i + 1} of {len(ambiguous_occurrences)})\n\nDuplicate msgid found: '{source.entry.msgid}'\nChoose a msgstr for the below reference:\n\n{occurrence[0]}",
                 indicator="=>",
             )
@@ -419,7 +419,7 @@ class MergePO:
         for i, (msgid, entries) in enumerate(entries_by_msgid.items()):
             while len(entries) > 1:
                 selected = pick(
-                    [f"'{entry.entry.msgstr}'" for entry in entries],
+                    [repr(entry.entry.msgstr) for entry in entries],
                     f"ENTRY MERGE SUGGESTION ({i + 1} of {len(entries_by_msgid)})\n\nThe entries with the following msgstrs have the same msgid:\n\n'{msgid}'\n\nDo you want to merge any of them? Select the ones you want to be merged and removed and then select the entry to merge into LAST\nor leave the selection empty to stop merging for this msgid\n(press SPACE to mark, ENTER to continue/skip)",
                     indicator="=>",
                     multiselect=True,
@@ -449,7 +449,7 @@ class MergePO:
         """
         selection_entries = self.output_entries
         selected = pick(
-            [f"'{entry.entry.msgid}'" for entry in selection_entries],
+            [repr(entry.entry.msgid) for entry in selection_entries],
             f"ENTRY EXCLUSION\n\nSelect msgids of entries that you want to exclude from this file\n\nThe selected entries will be removed from and never added to the output file\nin further runs of the program for the same base file",
             indicator="=>",
             multiselect=True,
@@ -505,7 +505,7 @@ class MergePO:
                     entry_suggestions.append((entry, unique_suggestions))
 
         for i, (entry, suggestions) in enumerate(entry_suggestions):
-            choices = [f"'{entry.entry.msgstr} (Original)'"] + [f"'{msgstr}'" for msgstr in suggestions]
+            choices = [f"{repr(entry.entry.msgstr)} (Original)"] + [repr(msgstr) for msgstr in suggestions]
             _, j = pick(
                 choices,
                 f"TRANSLATION SUGGESTION ({i + 1} of {len(entry_suggestions)})\n\nThe entry with following msgid:\n\n'{entry.entry.msgid}'\n\nmay be translated as one of the following:\n\n",
