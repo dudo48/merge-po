@@ -11,9 +11,9 @@ import hashlib
 import os
 import pickle
 import re
-from typing import Tuple, Union
+from typing import Tuple, Union, cast
 
-from pick import pick
+from pick import PICK_RETURN_T, pick
 from polib import pofile, POEntry
 from tabulate import tabulate
 
@@ -22,6 +22,7 @@ MERGEPO_PATH = os.path.dirname(os.path.abspath(__file__))
 PERSISTENT_DATA_PATH = os.path.join(MERGEPO_PATH, '.persistent')
 
 EXCLUDED_ENTRIES_FILE_NAME = 'excluded'
+PICK_INDICATOR = '=>'
 
 
 class MergePOEntrySource(Enum):
@@ -51,8 +52,10 @@ class MergePOEntry:
     def __hash__(self):
         return hash(self.__key())
 
-    def __eq__(self, other: "MergePOEntry"):
-        return self.__key() == other.__key()
+    def __eq__(self, other: object):
+        if isinstance(other, MergePOEntry):
+            return self.__key() == other.__key()
+        return False
 
     def __lt__(self, other: "MergePOEntry"):
         return self.__key() < other.__key()
@@ -102,7 +105,7 @@ class MergePOEntry:
         return self.source == MergePOEntrySource.EXPORTED
 
     def describe_changes(self):
-        changes = []
+        changes: list[str] = []
 
         # Tell if file was not originally in the base file
         if self.is_external_entry():
@@ -124,7 +127,7 @@ class MergePOEntry:
         if self.entry.msgstr != self.original_msgstr:
             changes.append(f"Updated msgstr")
 
-        return ", ".join(changes) or None
+        return ", ".join(changes)
 
     @staticmethod
     def match_occurrences_multi(source: "MergePOEntry", destinations: "list[MergePOEntry]"):
@@ -148,13 +151,10 @@ class MergePOEntry:
 
         ambiguous_occurrences = [o for o in source.entry.occurrences if o not in unambiguous_occurrences]
         for i, occurrence in enumerate(sorted(ambiguous_occurrences)):
-            _, j = pick(
-                [repr(entry.entry.msgstr) for entry in destinations],
-                f"REFERENCE AMBIGUITY ({i + 1} of {len(ambiguous_occurrences)})\n\nDuplicate msgid found: '{repr(source.entry.msgid)}'\nChoose a msgstr for the below reference:\n\n{occurrence[0]}",
-                indicator="=>",
-            )
-            if isinstance(j, int):  # added this condition to suppress pick return type warning
-                destinations[j].entry.occurrences.append(occurrence)
+            options = [repr(entry.entry.msgstr) for entry in destinations]
+            title = f"REFERENCE AMBIGUITY ({i + 1} of {len(ambiguous_occurrences)})\n\nDuplicate msgid found: '{repr(source.entry.msgid)}'\nChoose a msgstr for the below reference:\n\n{occurrence[0]}"
+            _, j = cast(PICK_RETURN_T[str], pick(options=options, title=title, indicator=PICK_INDICATOR))
+            destinations[j].entry.occurrences.append(occurrence)
 
     @staticmethod
     def filter_occurrences(occurrences: "list[tuple[str, int]]", regex: str):
@@ -369,7 +369,7 @@ class MergePO:
             if entry.is_exported_entry() and self._is_matched_entry(entry):
                 exported_matched_msgids.add(entry.entry.msgid)
 
-        output_entries = []
+        output_entries:list[MergePOEntry] = []
         for entry in self.output_entries:
             if not self._is_matched_entry(entry) or entry.entry.msgid in exported_matched_msgids:
                 output_entries.append(entry)
@@ -381,7 +381,7 @@ class MergePO:
         """
         Filter out entries with empty occurrences list
         """
-        output_entries = []
+        output_entries: list[MergePOEntry] = []
         for entry in self.output_entries:
             if not self._is_matched_entry(entry) or entry.entry.occurrences:
                 output_entries.append(entry)
@@ -393,7 +393,7 @@ class MergePO:
         """
         Filter out entries which were previously excluded
         """
-        output_entries = []
+        output_entries: list[MergePOEntry] = []
         for entry in self.output_entries:
             if entry.entry.msgid not in self.excluded_msgids:
                 output_entries.append(entry)
@@ -409,7 +409,7 @@ class MergePO:
         """
         Suggest to merge occurrences of entries with same msgids
         """
-        entries_by_msgid = {}
+        entries_by_msgid: dict[str, list[MergePOEntry]] = {}
         for msgid, entries in self._group_output_entries_by_msgid().items():
             matched_entries = [entry for entry in entries if self._is_matched_entry(entry)]
             if len(matched_entries) > 1:
@@ -418,15 +418,13 @@ class MergePO:
         removed_entries: set[MergePOEntry] = set()
         for i, (msgid, entries) in enumerate(entries_by_msgid.items()):
             while len(entries) > 1:
-                selected = pick(
-                    [repr(entry.entry.msgstr) for entry in entries],
-                    f"ENTRY MERGE SUGGESTION ({i + 1} of {len(entries_by_msgid)})\n\nThe entries with the following msgstrs have the same msgid:\n\n'{msgid}'\n\nDo you want to merge any of them? Select the ones you want to be merged and removed and then select the entry to merge into LAST\nor leave the selection empty to stop merging for this msgid\n(press SPACE to mark, ENTER to continue/skip)",
-                    indicator="=>",
-                    multiselect=True,
+                options = [repr(entry.entry.msgstr) for entry in entries]
+                title = f"ENTRY MERGE SUGGESTION ({i + 1} of {len(entries_by_msgid)})\n\nThe entries with the following msgstrs have the same msgid:\n\n'{msgid}'\n\nDo you want to merge any of them? Select the ones you want to be merged and removed and then select the entry to merge into LAST\nor leave the selection empty to stop merging for this msgid\n(press SPACE to mark, ENTER to continue/skip)"
+                selected = cast(
+                    "list[PICK_RETURN_T[str]]",
+                    pick(options=options, title=title, indicator=PICK_INDICATOR, multiselect=True)
                 )
-                selected_indices = []
-                if isinstance(selected, list):
-                    selected_indices = [j for _, j in selected]
+                selected_indices = [j for _, j in selected]
                 if not selected_indices:
                     break
 
@@ -448,15 +446,13 @@ class MergePO:
         Excluded entries are always excluded regardless of whether or not they are matched.
         """
         selection_entries = self.output_entries
-        selected = pick(
-            [repr(entry.entry.msgid) for entry in selection_entries],
-            f"ENTRY EXCLUSION\n\nSelect msgids of entries that you want to exclude from this file\n\nThe selected entries will be removed from and never added to the output file\nin further runs of the program for the same base file",
-            indicator="=>",
-            multiselect=True,
+        options = [repr(entry.entry.msgid) for entry in selection_entries]
+        title = f"ENTRY EXCLUSION\n\nSelect msgids of entries that you want to exclude from this file\n\nThe selected entries will be removed from and never added to the output file\nin further runs of the program for the same base file"
+        selected = cast(
+            "list[PICK_RETURN_T[str]]",
+            pick(options=options, title=title, indicator=PICK_INDICATOR, multiselect=True)
         )
-        selected_indices: set[int] = set()
-        if isinstance(selected, list):
-            selected_indices = set([i for _, i in selected])
+        selected_indices = set([i for _, i in selected])
 
         for i, entry in enumerate(selection_entries):
             if i in selected_indices:
@@ -505,13 +501,10 @@ class MergePO:
                     entry_suggestions.append((entry, unique_suggestions))
 
         for i, (entry, suggestions) in enumerate(entry_suggestions):
-            choices = [f"{repr(entry.entry.msgstr)} (Original)"] + [repr(msgstr) for msgstr in suggestions]
-            _, j = pick(
-                choices,
-                f"TRANSLATION SUGGESTION ({i + 1} of {len(entry_suggestions)})\n\nThe entry with following msgid:\n\n{repr(entry.entry.msgid)}\n\nmay be translated as one of the following:\n\n",
-                indicator="=>",
-            )
-            if isinstance(j, int) and j != 0:
+            options = [f"{repr(entry.entry.msgstr)} (Original)"] + [repr(msgstr) for msgstr in suggestions]
+            title = f"TRANSLATION SUGGESTION ({i + 1} of {len(entry_suggestions)})\n\nThe entry with following msgid:\n\n{repr(entry.entry.msgid)}\n\nmay be translated as one of the following:\n\n"
+            _, j = cast(PICK_RETURN_T[str], pick( options=options, title=title, indicator=PICK_INDICATOR))
+            if j != 0:
                 entry.entry.msgstr = suggestions[j - 1]
 
     def translate_interactively(self):
@@ -539,7 +532,7 @@ class MergePO:
         added_entries_count = modified_entries_count = removed_entries_count = 0
 
         # Log output entries table
-        data = []
+        data: list[list[Union[str, int]]] = []
         for entry in self.output_entries:
             changes = entry.describe_changes()
             if changes:
