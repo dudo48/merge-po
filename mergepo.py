@@ -46,7 +46,7 @@ class MergePOEntry:
         return (self.entry.msgid, self.entry.msgstr, len(self.entry.occurrences))
 
     def __repr__(self):
-        return f"MergePOEntry('{self.entry.msgid}', '{self.entry.msgstr}')"
+        return f"MergePOEntry({repr(self.entry.msgid)}, {repr(self.entry.msgstr)})"
 
     def __hash__(self):
         return hash(self.__key())
@@ -150,7 +150,7 @@ class MergePOEntry:
         for i, occurrence in enumerate(sorted(ambiguous_occurrences)):
             _, j = pick(
                 [repr(entry.entry.msgstr) for entry in destinations],
-                f"REFERENCE AMBIGUITY ({i + 1} of {len(ambiguous_occurrences)})\n\nDuplicate msgid found: '{source.entry.msgid}'\nChoose a msgstr for the below reference:\n\n{occurrence[0]}",
+                f"REFERENCE AMBIGUITY ({i + 1} of {len(ambiguous_occurrences)})\n\nDuplicate msgid found: '{repr(source.entry.msgid)}'\nChoose a msgstr for the below reference:\n\n{occurrence[0]}",
                 indicator="=>",
             )
             if isinstance(j, int):  # added this condition to suppress pick return type warning
@@ -508,7 +508,7 @@ class MergePO:
             choices = [f"{repr(entry.entry.msgstr)} (Original)"] + [repr(msgstr) for msgstr in suggestions]
             _, j = pick(
                 choices,
-                f"TRANSLATION SUGGESTION ({i + 1} of {len(entry_suggestions)})\n\nThe entry with following msgid:\n\n'{entry.entry.msgid}'\n\nmay be translated as one of the following:\n\n",
+                f"TRANSLATION SUGGESTION ({i + 1} of {len(entry_suggestions)})\n\nThe entry with following msgid:\n\n{repr(entry.entry.msgid)}\n\nmay be translated as one of the following:\n\n",
                 indicator="=>",
             )
             if isinstance(j, int) and j != 0:
@@ -518,7 +518,7 @@ class MergePO:
         matched_entries = [entry for entry in self.output_entries if self._is_matched_entry(entry)]
         for i, entry in enumerate(matched_entries):
             print(
-                f"INTERACTIVE TRANSLATION ({i + 1} of {len(matched_entries)})\n\nEnter translation for the entry with the below msgid and msgstr or leave the input empty to leave its msgstr as it is\n\n'{entry.entry.msgid}' -> '{entry.entry.msgstr}'\n\n"
+                f"INTERACTIVE TRANSLATION ({i + 1} of {len(matched_entries)})\n\nEnter translation for the entry with the below msgid and msgstr or leave the input empty to leave its msgstr as it is\n\n{repr(entry.entry.msgid)} -> {repr(entry.entry.msgstr)}\n\n"
             )
             new_msgstr = input(": ")
             if new_msgstr:
@@ -548,7 +548,7 @@ class MergePO:
                 else:
                     modified_entries_count += 1
             if self.verbose or changes:
-                data.append([entry.entry.msgid, entry.entry.msgstr, entry.describe_changes()])
+                data.append([repr(entry.entry.msgid), repr(entry.entry.msgstr), entry.describe_changes()])
 
         headers = ["Msgid", "Msgstr", "Changes"]
         maxcolwidths = [32, 32, 32]
@@ -563,7 +563,7 @@ class MergePO:
         for entry in self.entries:
             if entry.removal_reason and entry.is_base_entry():
                 removed_entries_count += 1
-                data.append([entry.entry.msgid, entry.entry.msgstr, entry.removal_reason])
+                data.append([repr(entry.entry.msgid), repr(entry.entry.msgstr), entry.removal_reason])
 
         headers = ["Msgid", "Msgstr", "Removal Reason"]
         maxcolwidths = [32, 32, 32]
@@ -575,7 +575,7 @@ class MergePO:
 
         # Log repeated msgstrs
         data = [
-            [msgstr, len(entries)]
+            [repr(msgstr), len(entries)]
             for msgstr, entries in self._group_output_entries_by_msgstr().items()
             if len(entries) > 1
         ]
