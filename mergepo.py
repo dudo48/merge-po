@@ -32,10 +32,6 @@ class MergePOEntrySource(Enum):
 
 
 class MergePOEntry:
-    """
-    Encapsulates entries in a PO file
-    """
-
     def __init__(self, entry: POEntry, source: MergePOEntrySource):
         self.entry = entry
         self.source = source
@@ -44,18 +40,10 @@ class MergePOEntry:
         self.removal_reason: Union[str, None] = None
 
     def __key(self):
-        return (self.entry.msgid, self.entry.msgstr, len(self.entry.occurrences))
+        return (self.entry.msgid, self.entry.msgstr, *sorted(self.entry.occurrences))
 
     def __repr__(self):
         return f"MergePOEntry({repr(self.entry.msgid)}, {repr(self.entry.msgstr)})"
-
-    def __hash__(self):
-        return hash(self.__key())
-
-    def __eq__(self, other: object):
-        if isinstance(other, MergePOEntry):
-            return self.__key() == other.__key()
-        return False
 
     def __lt__(self, other: "MergePOEntry"):
         return self.__key() < other.__key()
