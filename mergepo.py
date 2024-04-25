@@ -140,7 +140,7 @@ class MergePOEntry:
         ambiguous_occurrences = [o for o in source.entry.occurrences if o not in unambiguous_occurrences]
         for i, occurrence in enumerate(sorted(ambiguous_occurrences)):
             options = [repr(entry.entry.msgstr) for entry in destinations]
-            title = f"REFERENCE AMBIGUITY ({i + 1} of {len(ambiguous_occurrences)})\n\nDuplicate msgid found: '{repr(source.entry.msgid)}'\nChoose a msgstr for the below reference:\n\n{occurrence[0]}"
+            title = f"REFERENCE AMBIGUITY ({i + 1} of {len(ambiguous_occurrences)})\n\nDuplicate msgid found: {repr(source.entry.msgid)}\nChoose a msgstr for the below reference:\n\n{occurrence[0]}"
             _, j = cast(PICK_RETURN_T[str], pick(options=options, title=title, indicator=PICK_INDICATOR))
             destinations[j].entry.occurrences.append(occurrence)
 
