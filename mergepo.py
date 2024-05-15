@@ -208,10 +208,10 @@ class MergePO:
         self.find_matched_msgids()
         self.add_base_entries()
         self.add_external_entries()
+        self.filter_duplicates()
         if self.exported_path:
             self.add_exported_entries()
             self.filter_not_in_exported()
-        self.filter_duplicates()
 
         if self.reset_excluded:
             self.reset_excluded_entries()
