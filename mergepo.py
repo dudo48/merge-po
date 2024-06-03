@@ -167,7 +167,8 @@ class MergePO:
         verbose: bool,
         exclude: bool,
         unexclude: bool,
-        reset_excluded: bool
+        reset_excluded: bool,
+        confirm: bool
     ):
         self.base_path = os.path.abspath(base_path)
         self.base_pofile = pofile(self.base_path)
@@ -191,6 +192,7 @@ class MergePO:
         self.exclude = exclude
         self.unexclude = unexclude
         self.reset_excluded = reset_excluded
+        self.confirm = confirm
 
         self.entries: list[MergePOEntry] = []
         self.output_entries: list[MergePOEntry] = []
@@ -227,6 +229,9 @@ class MergePO:
         self.suggest_merge_same_msgid()
         self.filter_no_occurrences()
         self.filter_duplicate_occurrences()
+
+        if self.confirm:
+            self.confirm_new_entries()
 
         if self.translations_glob:
             self.suggest_translations()
@@ -532,6 +537,42 @@ class MergePO:
             if self._is_matched_entry(entry):
                 entry.entry.occurrences.sort()
 
+    def confirm_new_entries(self):
+        output_entries: list[MergePOEntry] = []
+        added_entries_count = 0
+
+        for entry in self.output_entries:
+            if not entry.is_base_entry():
+                added_entries_count += 1
+
+        if not added_entries_count:
+            return
+
+        i = 1
+        for entry in self.output_entries:
+            if not entry.is_base_entry():
+                # this msgid was excluded through a previous iteration, so skip it and do not add it
+                if entry.entry.msgid in self.excluded_msgids:
+                    continue
+
+                options = ["Yes", "No", "Exclude (No and exclude this entry from this base file forever)"]
+                title = f"ADDED ENTRY CONFIRMATION ({i} of {added_entries_count})\n\nDo you want to add the following entry to the output file?\n\n{entry.entry}"
+                selected = cast(PICK_RETURN_T[str], pick(options=options, title=title, indicator=PICK_INDICATOR))
+                _, j = selected
+                if j == 0:
+                    output_entries.append(entry)
+                elif j == 1:
+                    # the choice is 'No' so do nothing
+                    pass
+                elif j == 2:
+                    self.excluded_msgids.add(entry.entry.msgid)
+                i += 1
+            else:
+                output_entries.append(entry)
+
+        self.output_entries = output_entries
+        self._dump_excluded_msgids()
+
     def describe_changes(self):
         if self.sort_entries:
             print(f"Sorted entries")
@@ -640,5 +681,6 @@ if __name__ == "__main__":
     parser.add_argument("--exclude", action="store_true", help="Enters interactive selection mode for entries, where chosen entries will be removed and become excluded from ever being added according to this base file")
     parser.add_argument("--unexclude", action="store_true", help="Interactively unexclude entries that were previously excluded")
     parser.add_argument("--reset-excluded", action="store_true", help="Reset the exclusion status of all entries")
+    parser.add_argument("-c", "--confirm", action="store_true", help="Confirm every new entry added before adding it to the output file")
 
     MergePO(**vars(parser.parse_args()))
