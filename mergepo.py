@@ -5,18 +5,17 @@ but by the repetition of slowly destructive little things.
 """
 
 import argparse
-from enum import Enum
 import glob
 import hashlib
 import os
 import pickle
 import re
+from enum import Enum
 from typing import Tuple, Union, cast
 
 from pick import PICK_RETURN_T, pick
-from polib import pofile, POEntry
+from polib import POEntry, pofile
 from tabulate import tabulate
-
 
 MERGEPO_PATH = os.path.dirname(os.path.abspath(__file__))
 PERSISTENT_DATA_PATH = os.path.join(MERGEPO_PATH, '.persistent')
@@ -145,7 +144,7 @@ class MergePOEntry:
             destinations[j].entry.occurrences.append(occurrence)
 
     @staticmethod
-    def filter_occurrences(occurrences: "list[tuple[str, int]]", regex: str):
+    def filter_occurrences(occurrences: "list[tuple[str, str]]", regex: str):
         return [o for o in occurrences if re.search(regex, o[0])]
 
     @staticmethod
@@ -456,7 +455,7 @@ class MergePO:
         """
         if not self.excluded_msgids:
             return
-        
+
         excluded_msgids = sorted(self.excluded_msgids)
         options = [repr(msgid) for msgid in excluded_msgids]
         title = f"ENTRY UNEXCLUSION\n\nSelect msgids of entries that you want to unexclude for this file"
