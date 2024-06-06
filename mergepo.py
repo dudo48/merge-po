@@ -20,12 +20,10 @@ from tabulate import tabulate
 MERGEPO_PATH = os.path.dirname(os.path.abspath(__file__))
 PERSISTENT_DATA_PATH = os.path.join(MERGEPO_PATH, '.persistent')
 
+T = TypeVar('T')
 EXCLUDED_ENTRIES_FILE_NAME = 'excluded'
 SUGGESTED_MERGES_FILE_NAME = 'suggested_merges'
 PICK_INDICATOR = '=>'
-
-
-T = TypeVar('T')
 
 
 def load_persistent_data(path: str) -> Union[T, None]: # type: ignore
@@ -57,7 +55,7 @@ class MergePOEntry:
         self.removal_reason: Union[str, None] = None
 
     def __key(self):
-        return (self.entry.msgid, self.entry.msgstr, *sorted(self.entry.occurrences))
+        return self.entry.msgid, self.entry.msgstr
 
     def __repr__(self):
         return f"MergePOEntry({repr(self.entry.msgid)}, {repr(self.entry.msgstr)})"
@@ -377,7 +375,7 @@ class MergePO:
             if entry.is_exported_entry() and self._is_matched_entry(entry):
                 exported_matched_msgids.add(entry.entry.msgid)
 
-        output_entries:list[MergePOEntry] = []
+        output_entries: list[MergePOEntry] = []
         for entry in self.output_entries:
             if not self._is_matched_entry(entry) or entry.entry.msgid in exported_matched_msgids:
                 output_entries.append(entry)
