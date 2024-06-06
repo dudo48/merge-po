@@ -650,7 +650,7 @@ class MergePO:
         output_file.save(self.output_path)
 
 
-if __name__ == "__main__":
+def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-b", "--base-path", required=True, help="Base file path")
     parser.add_argument(
@@ -686,3 +686,7 @@ if __name__ == "__main__":
     parser.add_argument("-c", "--confirm", action="store_true", help="Confirm every new entry added before adding it to the output file")
 
     MergePO(**vars(parser.parse_args()))
+
+
+if __name__ == "__main__":
+    main()
