@@ -184,7 +184,8 @@ class MergePO:
         exclude: bool,
         unexclude: bool,
         reset_excluded: bool,
-        confirm: bool
+        confirm: bool,
+        reset_suggested_merges: bool
     ):
         self.base_path = os.path.abspath(base_path)
         self.base_pofile = pofile(self.base_path)
@@ -210,6 +211,7 @@ class MergePO:
         self.unexclude = unexclude
         self.reset_excluded = reset_excluded
         self.confirm = confirm
+        self.reset_suggested_merges = reset_suggested_merges
 
         self.entries: list[MergePOEntry] = []
         self.output_entries: list[MergePOEntry] = []
@@ -247,6 +249,9 @@ class MergePO:
             self.filter_excluded_entries()
             self.exclude_entries()
         self.filter_excluded_entries()
+
+        if self.reset_suggested_merges:
+            self.suggested_merges.clear()
 
         self.suggest_merge_same_msgid()
         self.filter_no_occurrences()
@@ -684,6 +689,9 @@ def main():
     parser.add_argument("--unexclude", action="store_true", help="Interactively unexclude entries that were previously excluded")
     parser.add_argument("--reset-excluded", action="store_true", help="Reset the exclusion status of all entries")
     parser.add_argument("-c", "--confirm", action="store_true", help="Confirm every new entry added before adding it to the output file")
+    parser.add_argument(
+        "--reset-suggested-merges", action="store_true", help="Reset the merge suggestion status of all entries (re-suggest merge suggestions already seen)"
+    )
 
     MergePO(**vars(parser.parse_args()))
 
