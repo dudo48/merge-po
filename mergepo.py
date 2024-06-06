@@ -11,7 +11,7 @@ import os
 import pickle
 import re
 from enum import Enum
-from typing import Tuple, Union, cast
+from typing import Tuple, TypeVar, Union, cast
 
 from pick import PICK_RETURN_T, pick
 from polib import POEntry, pofile
@@ -22,6 +22,23 @@ PERSISTENT_DATA_PATH = os.path.join(MERGEPO_PATH, '.persistent')
 
 EXCLUDED_ENTRIES_FILE_NAME = 'excluded'
 PICK_INDICATOR = '=>'
+
+
+T = TypeVar('T')
+
+
+def load_persistent_data(path: str) -> Union[T, None]: # type: ignore
+    try:
+        with open(path, 'rb') as file:
+            return pickle.load(file)
+    except FileNotFoundError:
+        pass
+    return None
+
+def save_persistent_data(path: str, data: object):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'wb') as file:
+        return pickle.dump(data, file)
 
 
 class MergePOEntrySource(Enum):
@@ -198,9 +215,12 @@ class MergePO:
         self.output_entries: list[MergePOEntry] = []
 
         self.matched_msgids: set[str] = set()
-        self.excluded_msgids = self._load_excluded_msgids()
+        self.excluded_msgids: "set[str]" = load_persistent_data(self.excluded_file_path) or set()
 
         self.run()
+
+        save_persistent_data(self.excluded_file_path, self.excluded_msgids)
+
         self.save_output_file()
         self.describe_changes()
 
@@ -215,7 +235,7 @@ class MergePO:
             self.filter_not_in_exported()
 
         if self.reset_excluded:
-            self.reset_excluded_entries()
+            self.excluded_msgids.clear()
 
         if self.unexclude:
             self.unexclude_entries()
@@ -279,19 +299,6 @@ class MergePO:
             else:
                 result[key] = [entry]
         return result
-
-    def _load_excluded_msgids(self) -> "set[str]":
-        try:
-            with open(self.excluded_file_path, 'rb') as file:
-                return pickle.load(file)
-        except FileNotFoundError:
-            pass
-        return set()
-
-    def _dump_excluded_msgids(self):
-        os.makedirs(self.persistent_data_path, exist_ok=True)
-        with open(self.excluded_file_path, 'wb') as file:
-            return pickle.dump(self.excluded_msgids, file)
 
     def find_entries(self):
         """
@@ -398,10 +405,6 @@ class MergePO:
                 entry.removal_reason = "Excluded entry"
         self.output_entries = output_entries
 
-    def reset_excluded_entries(self):
-        self.excluded_msgids.clear()
-        self._dump_excluded_msgids()
-
     def suggest_merge_same_msgid(self):
         """
         Suggest to merge occurrences of entries with same msgids
@@ -452,8 +455,6 @@ class MergePO:
         for _, i in selected:
             self.excluded_msgids.add(self.output_entries[i].entry.msgid)
 
-        self._dump_excluded_msgids()
-
     def unexclude_entries(self):
         """
         Unexclude entries that were previously excluded
@@ -471,8 +472,6 @@ class MergePO:
 
         for _, i in selected:
             self.excluded_msgids.remove(excluded_msgids[i])
-
-        self._dump_excluded_msgids()
 
     def suggest_translations(self):
         matched_entries = [entry for entry in self.output_entries if self._is_matched_entry(entry)]
@@ -571,7 +570,6 @@ class MergePO:
                 output_entries.append(entry)
 
         self.output_entries = output_entries
-        self._dump_excluded_msgids()
 
     def describe_changes(self):
         if self.sort_entries:
