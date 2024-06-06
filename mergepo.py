@@ -21,6 +21,7 @@ MERGEPO_PATH = os.path.dirname(os.path.abspath(__file__))
 PERSISTENT_DATA_PATH = os.path.join(MERGEPO_PATH, '.persistent')
 
 EXCLUDED_ENTRIES_FILE_NAME = 'excluded'
+SUGGESTED_MERGES_FILE_NAME = 'suggested_merges'
 PICK_INDICATOR = '=>'
 
 
@@ -199,6 +200,7 @@ class MergePO:
 
         self.persistent_data_path = os.path.join(PERSISTENT_DATA_PATH, self.base_file_identifier)
         self.excluded_file_path = os.path.join(self.persistent_data_path, EXCLUDED_ENTRIES_FILE_NAME)
+        self.suggested_merges_file_path = os.path.join(self.persistent_data_path, SUGGESTED_MERGES_FILE_NAME)
 
         self.regex = regex
         self.sort_entries = sort_entries
@@ -213,13 +215,15 @@ class MergePO:
 
         self.entries: list[MergePOEntry] = []
         self.output_entries: list[MergePOEntry] = []
-
         self.matched_msgids: set[str] = set()
+
         self.excluded_msgids: "set[str]" = load_persistent_data(self.excluded_file_path) or set()
+        self.suggested_merges: "dict[str, set[str]]" = load_persistent_data(self.suggested_merges_file_path) or dict()
 
         self.run()
 
         save_persistent_data(self.excluded_file_path, self.excluded_msgids)
+        save_persistent_data(self.suggested_merges_file_path, self.suggested_merges)
 
         self.save_output_file()
         self.describe_changes()
@@ -412,7 +416,8 @@ class MergePO:
         entries_by_msgid: dict[str, list[MergePOEntry]] = {}
         for msgid, entries in self._group_output_entries_by_msgid().items():
             matched_entries = [entry for entry in entries if self._is_matched_entry(entry)]
-            if len(matched_entries) > 1:
+            msgstr_set = {entry.entry.msgstr for entry in matched_entries}
+            if len(matched_entries) > 1 and self.suggested_merges.get(msgid, set()) != msgstr_set:
                 entries_by_msgid[msgid] = matched_entries
 
         removed_entries: set[MergePOEntry] = set()
@@ -426,6 +431,7 @@ class MergePO:
                 )
                 selected_indices = [j for _, j in selected]
                 if not selected_indices:
+                    self.suggested_merges[msgid] = {entry.entry.msgstr for entry in entries}
                     break
 
                 removed_indices: set[int] = set()
