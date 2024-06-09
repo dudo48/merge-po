@@ -96,10 +96,8 @@ class MergePOEntry:
         """
         Set entry's occurrences to match occurrences of another entry
         """
-        result: "list[tuple[str, str]]" = []
-        result.extend(o for o in self.entry.occurrences if o in set(other.entry.occurrences))
-        result.extend(o for o in other.entry.occurrences if o not in set(self.entry.occurrences))
-        self.entry.occurrences = result
+        self.entry.occurrences = [o for o in self.entry.occurrences if o in set(other.entry.occurrences)]
+        self.entry.occurrences.extend(o for o in other.entry.occurrences if o not in set(self.entry.occurrences))
 
     def is_base_entry(self):
         return self.source == MergePOEntrySource.BASE
