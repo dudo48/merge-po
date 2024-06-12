@@ -10,6 +10,7 @@ import hashlib
 import os
 import pickle
 import re
+from collections import Counter
 from enum import Enum
 from typing import Tuple, TypeVar, Union, cast
 
@@ -126,14 +127,14 @@ class MergePOEntry:
             changes.append("Added from exported file")
 
         # Calculate added and removed occurrences
-        occurrences_set = set(self.entry.occurrences)
-        original_occurrences_set = set(self.original_occurrences)
+        occurrences = Counter(self.entry.occurrences)
+        original_occurrences = Counter(self.original_occurrences)
 
-        added_occurrences = [o for o in self.entry.occurrences if o not in original_occurrences_set]
-        removed_occurrences = [o for o in self.original_occurrences if o not in occurrences_set]
+        added_occurrences = occurrences - original_occurrences
+        removed_occurrences = original_occurrences - occurrences
 
         if added_occurrences or removed_occurrences:
-            changes.append(f"Added {len(added_occurrences)} and removed {len(removed_occurrences)} references")
+            changes.append(f"Added {sum(added_occurrences.values())} and removed {sum(removed_occurrences.values())} references")
 
         # Detect changed translation
         if self.entry.msgstr != self.original_msgstr:
