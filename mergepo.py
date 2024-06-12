@@ -280,6 +280,9 @@ class MergePO:
     def _is_matched_entry(self, entry: MergePOEntry):
         return entry.entry.msgid in self.matched_msgids
 
+    def _is_excluded_entry(self, entry: MergePOEntry):
+        return entry.entry.msgid in self.excluded_msgids
+
     def _group_output_entries_by_msgid(self):
         result: dict[str, list[MergePOEntry]] = {}
         for entry in self.output_entries:
@@ -407,7 +410,7 @@ class MergePO:
         """
         output_entries: list[MergePOEntry] = []
         for entry in self.output_entries:
-            if entry.entry.msgid not in self.excluded_msgids:
+            if not self._is_excluded_entry(entry):
                 output_entries.append(entry)
             else:
                 entry.removal_reason = "Excluded entry"
@@ -561,7 +564,7 @@ class MergePO:
         for entry in self.output_entries:
             if not entry.is_base_entry():
                 # this msgid was excluded through a previous iteration, so skip it and do not add it
-                if entry.entry.msgid in self.excluded_msgids:
+                if self._is_excluded_entry(entry):
                     continue
 
                 options = ["Yes", "No", "Exclude (No and exclude this entry from this base file forever)"]
