@@ -230,7 +230,8 @@ class MergePO:
         self.excluded_msgids: "set[str]" = load_persistent_data(self.excluded_file_path) or set()
         self.suggested_merges: "dict[str, set[str]]" = load_persistent_data(self.suggested_merges_file_path) or dict()
 
-        self.run()
+    def start(self):
+        self._run()
 
         save_persistent_data(self.excluded_file_path, self.excluded_msgids)
         save_persistent_data(self.suggested_merges_file_path, self.suggested_merges)
@@ -238,7 +239,7 @@ class MergePO:
         self.save_output_file()
         self.describe_changes()
 
-    def run(self):
+    def _run(self):
         self.find_entries()
         self.find_matched_msgids()
         self.add_base_entries()
@@ -706,7 +707,8 @@ def main():
         "--reset-suggested-merges", action="store_true", help="Reset the merge suggestion status of all entries (re-suggest merge suggestions already seen)"
     )
 
-    MergePO(**vars(parser.parse_args()))
+    merge_po = MergePO(**vars(parser.parse_args()))
+    merge_po.start()
 
 
 if __name__ == "__main__":
