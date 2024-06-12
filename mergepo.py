@@ -10,6 +10,7 @@ import hashlib
 import os
 import pickle
 import re
+from collections import Counter
 from enum import Enum
 from typing import Tuple, TypeVar, Union, cast
 
@@ -40,19 +41,27 @@ def save_persistent_data(path: str, data: object):
         return pickle.dump(data, file)
 
 
-class MergePOEntrySource(Enum):
+class EntrySource(Enum):
     BASE = 0
     EXTERNAL = 1
     EXPORTED = 2
 
 
+class EntryRemovalReason(Enum):
+    DUPLICATE = "Duplicate entry"
+    NOT_IN_EXPORTED = "Not in exported file"
+    NO_OCCURRENCES = "No references"
+    EXCLUDED = "Excluded entry"
+    MERGED = "Merged with another entry"
+
+
 class MergePOEntry:
-    def __init__(self, entry: POEntry, source: MergePOEntrySource):
+    def __init__(self, entry: POEntry, source: EntrySource):
         self.entry = entry
         self.source = source
         self.original_occurrences = [occurrence for occurrence in entry.occurrences]
         self.original_msgstr = entry.msgstr
-        self.removal_reason: Union[str, None] = None
+        self.removal_reason: Union[EntryRemovalReason, None] = None
 
     def __key(self):
         return self.entry.msgid, self.entry.msgstr
@@ -82,7 +91,7 @@ class MergePOEntry:
         """
         return self._occurrences_match(regex) or self._msgid_matches(regex) or self._msgstr_matches(regex)
 
-    def remove_duplicate_occurrences(self):
+    def filter_duplicate_occurrences(self):
         # used dict keys to maintain list order
         self.entry.occurrences = list(dict.fromkeys(self.entry.occurrences))
 
@@ -100,13 +109,13 @@ class MergePOEntry:
         self.entry.occurrences.extend(o for o in other.entry.occurrences if o not in set(self.entry.occurrences))
 
     def is_base_entry(self):
-        return self.source == MergePOEntrySource.BASE
+        return self.source == EntrySource.BASE
 
     def is_external_entry(self):
-        return self.source == MergePOEntrySource.EXTERNAL
+        return self.source == EntrySource.EXTERNAL
 
     def is_exported_entry(self):
-        return self.source == MergePOEntrySource.EXPORTED
+        return self.source == EntrySource.EXPORTED
 
     def describe_changes(self):
         changes: list[str] = []
@@ -118,14 +127,14 @@ class MergePOEntry:
             changes.append("Added from exported file")
 
         # Calculate added and removed occurrences
-        occurrences_set = set(self.entry.occurrences)
-        original_occurrences_set = set(self.original_occurrences)
+        occurrences = Counter(self.entry.occurrences)
+        original_occurrences = Counter(self.original_occurrences)
 
-        added_occurrences = [o for o in self.entry.occurrences if o not in original_occurrences_set]
-        removed_occurrences = [o for o in self.original_occurrences if o not in occurrences_set]
+        added_occurrences = occurrences - original_occurrences
+        removed_occurrences = original_occurrences - occurrences
 
         if added_occurrences or removed_occurrences:
-            changes.append(f"Added {len(added_occurrences)} and removed {len(removed_occurrences)} references")
+            changes.append(f"Added {sum(added_occurrences.values())} and removed {sum(removed_occurrences.values())} references")
 
         # Detect changed translation
         if self.entry.msgstr != self.original_msgstr:
@@ -280,6 +289,9 @@ class MergePO:
     def _is_matched_entry(self, entry: MergePOEntry):
         return entry.entry.msgid in self.matched_msgids
 
+    def _is_excluded_entry(self, entry: MergePOEntry):
+        return entry.entry.msgid in self.excluded_msgids
+
     def _group_output_entries_by_msgid(self):
         result: dict[str, list[MergePOEntry]] = {}
         for entry in self.output_entries:
@@ -313,15 +325,15 @@ class MergePO:
         Find and convert all entries from all input files into entry objects
         """
         for entry in self.base_pofile:
-            self.entries.append(MergePOEntry(entry, MergePOEntrySource.BASE))
+            self.entries.append(MergePOEntry(entry, EntrySource.BASE))
 
         for external_path in self.external_paths:
             for entry in pofile(external_path):
-                self.entries.append(MergePOEntry(entry, MergePOEntrySource.EXTERNAL))
+                self.entries.append(MergePOEntry(entry, EntrySource.EXTERNAL))
 
         if self.exported_path:
             for entry in pofile(self.exported_path):
-                self.entries.append(MergePOEntry(entry, MergePOEntrySource.EXPORTED))
+                self.entries.append(MergePOEntry(entry, EntrySource.EXPORTED))
 
     def find_matched_msgids(self):
         for entry in self.entries:
@@ -356,12 +368,12 @@ class MergePO:
         added_entries: dict[tuple[str], MergePOEntry] = {}
         for entry in self.output_entries:
             key = (entry.entry.msgid, entry.entry.msgstr)
-            if not self._is_matched_entry(entry) or key not in added_entries:
+            if self._is_matched_entry(entry) and key in added_entries:
+                added_entries[key].merge_occurrences(entry)
+                entry.removal_reason = EntryRemovalReason.DUPLICATE
+            else:
                 output_entries.append(entry)
                 added_entries[key] = entry
-            else:
-                added_entries[key].merge_occurrences(entry)
-                entry.removal_reason = "Duplicate entry"
         self.output_entries = output_entries
 
     def filter_duplicate_occurrences(self):
@@ -370,7 +382,7 @@ class MergePO:
         """
         for entry in self.output_entries:
             if self._is_matched_entry(entry):
-                entry.remove_duplicate_occurrences()
+                entry.filter_duplicate_occurrences()
 
     def filter_not_in_exported(self):
         """
@@ -383,10 +395,10 @@ class MergePO:
 
         output_entries: list[MergePOEntry] = []
         for entry in self.output_entries:
-            if not self._is_matched_entry(entry) or entry.entry.msgid in exported_matched_msgids:
-                output_entries.append(entry)
+            if self._is_matched_entry(entry) and entry.entry.msgid not in exported_matched_msgids:
+                entry.removal_reason = EntryRemovalReason.NOT_IN_EXPORTED
             else:
-                entry.removal_reason = "Not in exported file"
+                output_entries.append(entry)
         self.output_entries = output_entries
 
     def filter_no_occurrences(self):
@@ -395,10 +407,10 @@ class MergePO:
         """
         output_entries: list[MergePOEntry] = []
         for entry in self.output_entries:
-            if not self._is_matched_entry(entry) or entry.entry.occurrences:
-                output_entries.append(entry)
+            if self._is_matched_entry(entry) and not entry.entry.occurrences:
+                entry.removal_reason = EntryRemovalReason.NO_OCCURRENCES
             else:
-                entry.removal_reason = "No references"
+                output_entries.append(entry)
         self.output_entries = output_entries
 
     def filter_excluded_entries(self):
@@ -407,10 +419,10 @@ class MergePO:
         """
         output_entries: list[MergePOEntry] = []
         for entry in self.output_entries:
-            if entry.entry.msgid not in self.excluded_msgids:
-                output_entries.append(entry)
+            if self._is_excluded_entry(entry):
+                entry.removal_reason = EntryRemovalReason.EXCLUDED
             else:
-                entry.removal_reason = "Excluded entry"
+                output_entries.append(entry)
         self.output_entries = output_entries
 
     def suggest_merge_same_msgid(self):
@@ -445,7 +457,7 @@ class MergePO:
                     destination.merge_occurrences(entry)
                     removed_indices.add(j)
                     removed_entries.add(entry)
-                    entry.removal_reason = "Merged with another entry"
+                    entry.removal_reason = EntryRemovalReason.MERGED
                 entries = [entry for j, entry in enumerate(entries) if j not in removed_indices]
         self.output_entries = [entry for entry in self.output_entries if entry not in removed_entries]
 
@@ -561,7 +573,7 @@ class MergePO:
         for entry in self.output_entries:
             if not entry.is_base_entry():
                 # this msgid was excluded through a previous iteration, so skip it and do not add it
-                if entry.entry.msgid in self.excluded_msgids:
+                if self._is_excluded_entry(entry):
                     continue
 
                 options = ["Yes", "No", "Exclude (No and exclude this entry from this base file forever)"]
@@ -614,7 +626,7 @@ class MergePO:
         for entry in self.entries:
             if entry.removal_reason and entry.is_base_entry():
                 removed_entries_count += 1
-                data.append([repr(entry.entry.msgid), repr(entry.entry.msgstr), entry.removal_reason])
+                data.append([repr(entry.entry.msgid), repr(entry.entry.msgstr), entry.removal_reason.value])
 
         headers = ["Msgid", "Msgstr", "Removal Reason"]
         maxcolwidths = [32, 32, 32]
