@@ -46,13 +46,21 @@ class EntrySource(Enum):
     EXPORTED = 2
 
 
+class EntryRemovalReason(Enum):
+    DUPLICATE = "Duplicate entry"
+    NOT_IN_EXPORTED = "Not in exported file"
+    NO_OCCURRENCES = "No references"
+    EXCLUDED = "Excluded entry"
+    MERGED = "Merged with another entry"
+
+
 class MergePOEntry:
     def __init__(self, entry: POEntry, source: EntrySource):
         self.entry = entry
         self.source = source
         self.original_occurrences = [occurrence for occurrence in entry.occurrences]
         self.original_msgstr = entry.msgstr
-        self.removal_reason: Union[str, None] = None
+        self.removal_reason: Union[EntryRemovalReason, None] = None
 
     def __key(self):
         return self.entry.msgid, self.entry.msgstr
@@ -361,7 +369,7 @@ class MergePO:
             key = (entry.entry.msgid, entry.entry.msgstr)
             if self._is_matched_entry(entry) and key in added_entries:
                 added_entries[key].merge_occurrences(entry)
-                entry.removal_reason = "Duplicate entry"
+                entry.removal_reason = EntryRemovalReason.DUPLICATE
             else:
                 output_entries.append(entry)
                 added_entries[key] = entry
@@ -387,7 +395,7 @@ class MergePO:
         output_entries: list[MergePOEntry] = []
         for entry in self.output_entries:
             if self._is_matched_entry(entry) and entry.entry.msgid not in exported_matched_msgids:
-                entry.removal_reason = "Not in exported file"
+                entry.removal_reason = EntryRemovalReason.NOT_IN_EXPORTED
             else:
                 output_entries.append(entry)
         self.output_entries = output_entries
@@ -399,7 +407,7 @@ class MergePO:
         output_entries: list[MergePOEntry] = []
         for entry in self.output_entries:
             if self._is_matched_entry(entry) and not entry.entry.occurrences:
-                entry.removal_reason = "No references"
+                entry.removal_reason = EntryRemovalReason.NO_OCCURRENCES
             else:
                 output_entries.append(entry)
         self.output_entries = output_entries
@@ -411,7 +419,7 @@ class MergePO:
         output_entries: list[MergePOEntry] = []
         for entry in self.output_entries:
             if self._is_excluded_entry(entry):
-                entry.removal_reason = "Excluded entry"
+                entry.removal_reason = EntryRemovalReason.EXCLUDED
             else:
                 output_entries.append(entry)
         self.output_entries = output_entries
@@ -448,7 +456,7 @@ class MergePO:
                     destination.merge_occurrences(entry)
                     removed_indices.add(j)
                     removed_entries.add(entry)
-                    entry.removal_reason = "Merged with another entry"
+                    entry.removal_reason = EntryRemovalReason.MERGED
                 entries = [entry for j, entry in enumerate(entries) if j not in removed_indices]
         self.output_entries = [entry for entry in self.output_entries if entry not in removed_entries]
 
@@ -617,7 +625,7 @@ class MergePO:
         for entry in self.entries:
             if entry.removal_reason and entry.is_base_entry():
                 removed_entries_count += 1
-                data.append([repr(entry.entry.msgid), repr(entry.entry.msgstr), entry.removal_reason])
+                data.append([repr(entry.entry.msgid), repr(entry.entry.msgstr), entry.removal_reason.value])
 
         headers = ["Msgid", "Msgstr", "Removal Reason"]
         maxcolwidths = [32, 32, 32]
