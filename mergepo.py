@@ -40,14 +40,14 @@ def save_persistent_data(path: str, data: object):
         return pickle.dump(data, file)
 
 
-class MergePOEntrySource(Enum):
+class EntrySource(Enum):
     BASE = 0
     EXTERNAL = 1
     EXPORTED = 2
 
 
 class MergePOEntry:
-    def __init__(self, entry: POEntry, source: MergePOEntrySource):
+    def __init__(self, entry: POEntry, source: EntrySource):
         self.entry = entry
         self.source = source
         self.original_occurrences = [occurrence for occurrence in entry.occurrences]
@@ -100,13 +100,13 @@ class MergePOEntry:
         self.entry.occurrences.extend(o for o in other.entry.occurrences if o not in set(self.entry.occurrences))
 
     def is_base_entry(self):
-        return self.source == MergePOEntrySource.BASE
+        return self.source == EntrySource.BASE
 
     def is_external_entry(self):
-        return self.source == MergePOEntrySource.EXTERNAL
+        return self.source == EntrySource.EXTERNAL
 
     def is_exported_entry(self):
-        return self.source == MergePOEntrySource.EXPORTED
+        return self.source == EntrySource.EXPORTED
 
     def describe_changes(self):
         changes: list[str] = []
@@ -316,15 +316,15 @@ class MergePO:
         Find and convert all entries from all input files into entry objects
         """
         for entry in self.base_pofile:
-            self.entries.append(MergePOEntry(entry, MergePOEntrySource.BASE))
+            self.entries.append(MergePOEntry(entry, EntrySource.BASE))
 
         for external_path in self.external_paths:
             for entry in pofile(external_path):
-                self.entries.append(MergePOEntry(entry, MergePOEntrySource.EXTERNAL))
+                self.entries.append(MergePOEntry(entry, EntrySource.EXTERNAL))
 
         if self.exported_path:
             for entry in pofile(self.exported_path):
-                self.entries.append(MergePOEntry(entry, MergePOEntrySource.EXPORTED))
+                self.entries.append(MergePOEntry(entry, EntrySource.EXPORTED))
 
     def find_matched_msgids(self):
         for entry in self.entries:
