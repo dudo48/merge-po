@@ -7,39 +7,31 @@ but by the repetition of slowly destructive little things.
 import argparse
 import glob
 import hashlib
-import os
 import pickle
 import re
 from collections import Counter
 from enum import Enum
+from pathlib import Path
 from typing import Optional, Tuple, TypeVar, Union, cast
 
 from pick import PICK_RETURN_T, pick
 from polib import POEntry, pofile
 from tabulate import tabulate
 
-MERGEPO_PATH = os.path.dirname(os.path.abspath(__file__))
-PERSISTENT_DATA_PATH = os.path.join(MERGEPO_PATH, ".persistent")
+MERGEPO_PATH = Path(__file__).parent.resolve()
+PERSISTENT_DATA_PATH = MERGEPO_PATH.joinpath(".persistent")
 
 T = TypeVar("T")
-EXCLUDED_ENTRIES_FILE_NAME = "excluded"
-SUGGESTED_MERGES_FILE_NAME = "suggested_merges"
 PICK_INDICATOR = "=>"
 
 
-def load_persistent_data(path: str) -> Optional[T]:  # type: ignore
-    try:
-        with open(path, "rb") as file:
-            return pickle.load(file)
-    except FileNotFoundError:
-        pass
-    return None
+def load_persistent_data(path: Path) -> Optional[T]:  # type: ignore
+    return pickle.loads(path.read_bytes()) if path.is_file() else None
 
 
-def save_persistent_data(path: str, data: object):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "wb") as file:
-        return pickle.dump(data, file)
+def save_persistent_data(path: Path, data: object):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(pickle.dumps(data))
 
 
 class EntrySource(Enum):
@@ -219,26 +211,24 @@ class MergePO:
         confirm: bool,
         reset_suggested_merges: bool,
     ):
-        self.base_path = os.path.abspath(base_path)
-        self.base_pofile = pofile(self.base_path)
+        self.base_path = Path(base_path).resolve()
+        self.base_pofile = pofile(str(self.base_path))
         self.base_file_identifier = hashlib.sha1(
             pickle.dumps(
                 (self.base_pofile.header, str(self.base_pofile.metadata_as_entry()))
             )
         ).hexdigest()
 
-        self.output_path = os.path.abspath(output_path or base_path)
-        self.external_paths = [os.path.abspath(path) for path in external_paths]
-        self.exported_path = exported_path and os.path.abspath(exported_path)
+        self.output_path = Path(output_path or base_path).resolve()
+        self.external_paths = [Path(path).resolve() for path in external_paths]
+        self.exported_path = Path(exported_path).resolve() if exported_path else None
 
-        self.persistent_data_path = os.path.join(
-            PERSISTENT_DATA_PATH, self.base_file_identifier
+        self.persistent_data_path = PERSISTENT_DATA_PATH.joinpath(
+            self.base_file_identifier
         )
-        self.excluded_file_path = os.path.join(
-            self.persistent_data_path, EXCLUDED_ENTRIES_FILE_NAME
-        )
-        self.suggested_merges_file_path = os.path.join(
-            self.persistent_data_path, SUGGESTED_MERGES_FILE_NAME
+        self.excluded_file_path = self.persistent_data_path.joinpath("excluded")
+        self.suggested_merges_file_path = self.persistent_data_path.joinpath(
+            "suggested_merges"
         )
 
         self.regex = regex
@@ -363,11 +353,11 @@ class MergePO:
             self.entries.append(MergePOEntry(entry, EntrySource.BASE))
 
         for external_path in self.external_paths:
-            for entry in pofile(external_path):
+            for entry in pofile(str(external_path)):
                 self.entries.append(MergePOEntry(entry, EntrySource.EXTERNAL))
 
         if self.exported_path:
-            for entry in pofile(self.exported_path):
+            for entry in pofile(str(self.exported_path)):
                 self.entries.append(MergePOEntry(entry, EntrySource.EXPORTED))
 
     def find_matched_msgids(self):
@@ -777,10 +767,10 @@ class MergePO:
 
     def save_output_file(self):
         # re-create pofile object of base file to get metadata
-        output_file = pofile(self.base_path)
+        output_file = pofile(str(self.base_path))
         output_file.clear()
         output_file.extend([entry.entry for entry in self.output_entries])
-        output_file.save(self.output_path)
+        output_file.save(str(self.output_path))
 
 
 def main():
