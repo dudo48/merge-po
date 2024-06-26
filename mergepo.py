@@ -12,7 +12,7 @@ import pickle
 import re
 from collections import Counter
 from enum import Enum
-from typing import Tuple, TypeVar, Union, cast
+from typing import Optional, Tuple, TypeVar, Union, cast
 
 from pick import PICK_RETURN_T, pick
 from polib import POEntry, pofile
@@ -27,7 +27,7 @@ SUGGESTED_MERGES_FILE_NAME = "suggested_merges"
 PICK_INDICATOR = "=>"
 
 
-def load_persistent_data(path: str) -> Union[T, None]:  # type: ignore
+def load_persistent_data(path: str) -> Optional[T]:  # type: ignore
     try:
         with open(path, "rb") as file:
             return pickle.load(file)
@@ -62,7 +62,7 @@ class MergePOEntry:
         self.source = source
         self.original_occurrences = [occurrence for occurrence in entry.occurrences]
         self.original_msgstr = entry.msgstr
-        self.removal_reason: Union[EntryRemovalReason, None] = None
+        self.removal_reason: Optional[EntryRemovalReason] = None
 
     def __key(self):
         return self.entry.msgid, self.entry.msgstr
@@ -204,14 +204,14 @@ class MergePO:
     def __init__(
         self,
         base_path: str,
-        output_path: Union[str, None],
+        output_path: Optional[str],
         external_paths: "list[str]",
-        exported_path: Union[str, None],
+        exported_path: Optional[str],
         regex: str,
         sort_entries: bool,
         sort_references: bool,
         interactive_translation: bool,
-        translations_glob: Union[str, None],
+        translations_glob: Optional[str],
         verbose: bool,
         exclude: bool,
         unexclude: bool,
