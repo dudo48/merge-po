@@ -19,25 +19,26 @@ from polib import POEntry, pofile
 from tabulate import tabulate
 
 MERGEPO_PATH = os.path.dirname(os.path.abspath(__file__))
-PERSISTENT_DATA_PATH = os.path.join(MERGEPO_PATH, '.persistent')
+PERSISTENT_DATA_PATH = os.path.join(MERGEPO_PATH, ".persistent")
 
-T = TypeVar('T')
-EXCLUDED_ENTRIES_FILE_NAME = 'excluded'
-SUGGESTED_MERGES_FILE_NAME = 'suggested_merges'
-PICK_INDICATOR = '=>'
+T = TypeVar("T")
+EXCLUDED_ENTRIES_FILE_NAME = "excluded"
+SUGGESTED_MERGES_FILE_NAME = "suggested_merges"
+PICK_INDICATOR = "=>"
 
 
-def load_persistent_data(path: str) -> Union[T, None]: # type: ignore
+def load_persistent_data(path: str) -> Union[T, None]:  # type: ignore
     try:
-        with open(path, 'rb') as file:
+        with open(path, "rb") as file:
             return pickle.load(file)
     except FileNotFoundError:
         pass
     return None
 
+
 def save_persistent_data(path: str, data: object):
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, 'wb') as file:
+    with open(path, "wb") as file:
         return pickle.dump(data, file)
 
 
@@ -74,7 +75,9 @@ class MergePOEntry:
 
     # functions to check if a specific part of the entry matches a regex
     def _occurrences_match(self, regex: str):
-        matched_occurrences = MergePOEntry.filter_occurrences(self.entry.occurrences, regex)
+        matched_occurrences = MergePOEntry.filter_occurrences(
+            self.entry.occurrences, regex
+        )
 
         # empty occurrences are always matched
         return matched_occurrences or not self.entry.occurrences
@@ -89,7 +92,11 @@ class MergePOEntry:
         """
         Whether the entry matches a regex
         """
-        return self._occurrences_match(regex) or self._msgid_matches(regex) or self._msgstr_matches(regex)
+        return (
+            self._occurrences_match(regex)
+            or self._msgid_matches(regex)
+            or self._msgstr_matches(regex)
+        )
 
     def filter_duplicate_occurrences(self):
         # used dict keys to maintain list order
@@ -99,14 +106,20 @@ class MergePOEntry:
         """
         Union occurrences with another entry
         """
-        self.entry.occurrences.extend(o for o in other.entry.occurrences if o not in set(self.entry.occurrences))
+        self.entry.occurrences.extend(
+            o for o in other.entry.occurrences if o not in set(self.entry.occurrences)
+        )
 
     def match_occurrences(self, other: "MergePOEntry"):
         """
         Set entry's occurrences to match occurrences of another entry
         """
-        self.entry.occurrences = [o for o in self.entry.occurrences if o in set(other.entry.occurrences)]
-        self.entry.occurrences.extend(o for o in other.entry.occurrences if o not in set(self.entry.occurrences))
+        self.entry.occurrences = [
+            o for o in self.entry.occurrences if o in set(other.entry.occurrences)
+        ]
+        self.entry.occurrences.extend(
+            o for o in other.entry.occurrences if o not in set(self.entry.occurrences)
+        )
 
     def is_base_entry(self):
         return self.source == EntrySource.BASE
@@ -134,7 +147,9 @@ class MergePOEntry:
         removed_occurrences = original_occurrences - occurrences
 
         if added_occurrences or removed_occurrences:
-            changes.append(f"Added {sum(added_occurrences.values())} and removed {sum(removed_occurrences.values())} references")
+            changes.append(
+                f"Added {sum(added_occurrences.values())} and removed {sum(removed_occurrences.values())} references"
+            )
 
         # Detect changed translation
         if self.entry.msgstr != self.original_msgstr:
@@ -143,7 +158,9 @@ class MergePOEntry:
         return ", ".join(changes)
 
     @staticmethod
-    def match_occurrences_multi(source: "MergePOEntry", destinations: "list[MergePOEntry]"):
+    def match_occurrences_multi(
+        source: "MergePOEntry", destinations: "list[MergePOEntry]"
+    ):
         """
         Set destination entries to match the source entry's occurrences, giving choice in case of ambiguity
         """
@@ -162,11 +179,16 @@ class MergePOEntry:
                     unambiguous_occurrences.add(occurrence)
             entry.entry.occurrences = new_occurrences
 
-        ambiguous_occurrences = [o for o in source.entry.occurrences if o not in unambiguous_occurrences]
+        ambiguous_occurrences = [
+            o for o in source.entry.occurrences if o not in unambiguous_occurrences
+        ]
         for i, occurrence in enumerate(sorted(ambiguous_occurrences)):
             options = [repr(entry.entry.msgstr) for entry in destinations]
             title = f"REFERENCE AMBIGUITY ({i + 1} of {len(ambiguous_occurrences)})\n\nDuplicate msgid found: {repr(source.entry.msgid)}\nChoose a msgstr for the below reference:\n\n{occurrence[0]}"
-            _, j = cast(PICK_RETURN_T[str], pick(options=options, title=title, indicator=PICK_INDICATOR))
+            _, j = cast(
+                PICK_RETURN_T[str],
+                pick(options=options, title=title, indicator=PICK_INDICATOR),
+            )
             destinations[j].entry.occurrences.append(occurrence)
 
     @staticmethod
@@ -195,21 +217,29 @@ class MergePO:
         unexclude: bool,
         reset_excluded: bool,
         confirm: bool,
-        reset_suggested_merges: bool
+        reset_suggested_merges: bool,
     ):
         self.base_path = os.path.abspath(base_path)
         self.base_pofile = pofile(self.base_path)
         self.base_file_identifier = hashlib.sha1(
-            pickle.dumps((self.base_pofile.header, str(self.base_pofile.metadata_as_entry())))
+            pickle.dumps(
+                (self.base_pofile.header, str(self.base_pofile.metadata_as_entry()))
+            )
         ).hexdigest()
 
         self.output_path = os.path.abspath(output_path or base_path)
         self.external_paths = [os.path.abspath(path) for path in external_paths]
         self.exported_path = exported_path and os.path.abspath(exported_path)
 
-        self.persistent_data_path = os.path.join(PERSISTENT_DATA_PATH, self.base_file_identifier)
-        self.excluded_file_path = os.path.join(self.persistent_data_path, EXCLUDED_ENTRIES_FILE_NAME)
-        self.suggested_merges_file_path = os.path.join(self.persistent_data_path, SUGGESTED_MERGES_FILE_NAME)
+        self.persistent_data_path = os.path.join(
+            PERSISTENT_DATA_PATH, self.base_file_identifier
+        )
+        self.excluded_file_path = os.path.join(
+            self.persistent_data_path, EXCLUDED_ENTRIES_FILE_NAME
+        )
+        self.suggested_merges_file_path = os.path.join(
+            self.persistent_data_path, SUGGESTED_MERGES_FILE_NAME
+        )
 
         self.regex = regex
         self.sort_entries = sort_entries
@@ -227,8 +257,12 @@ class MergePO:
         self.output_entries: list[MergePOEntry] = []
         self.matched_msgids: set[str] = set()
 
-        self.excluded_msgids: "set[str]" = load_persistent_data(self.excluded_file_path) or set()
-        self.suggested_merges: "dict[str, set[str]]" = load_persistent_data(self.suggested_merges_file_path) or dict()
+        self.excluded_msgids: "set[str]" = (
+            load_persistent_data(self.excluded_file_path) or set()
+        )
+        self.suggested_merges: "dict[str, set[str]]" = (
+            load_persistent_data(self.suggested_merges_file_path) or dict()
+        )
 
     def start(self):
         self._run()
@@ -396,7 +430,10 @@ class MergePO:
 
         output_entries: list[MergePOEntry] = []
         for entry in self.output_entries:
-            if self._is_matched_entry(entry) and entry.entry.msgid not in exported_matched_msgids:
+            if (
+                self._is_matched_entry(entry)
+                and entry.entry.msgid not in exported_matched_msgids
+            ):
                 entry.removal_reason = EntryRemovalReason.NOT_IN_EXPORTED
             else:
                 output_entries.append(entry)
@@ -432,9 +469,14 @@ class MergePO:
         """
         entries_by_msgid: dict[str, list[MergePOEntry]] = {}
         for msgid, entries in self._group_output_entries_by_msgid().items():
-            matched_entries = [entry for entry in entries if self._is_matched_entry(entry)]
+            matched_entries = [
+                entry for entry in entries if self._is_matched_entry(entry)
+            ]
             msgstr_set = {entry.entry.msgstr for entry in matched_entries}
-            if len(matched_entries) > 1 and self.suggested_merges.get(msgid, set()) != msgstr_set:
+            if (
+                len(matched_entries) > 1
+                and self.suggested_merges.get(msgid, set()) != msgstr_set
+            ):
                 entries_by_msgid[msgid] = matched_entries
 
         removed_entries: set[MergePOEntry] = set()
@@ -444,11 +486,18 @@ class MergePO:
                 title = f"ENTRY MERGE SUGGESTION ({i + 1} of {len(entries_by_msgid)})\n\nThe entries with the following msgstrs have the same msgid:\n\n'{msgid}'\n\nDo you want to merge any of them? Select the ones you want to be merged and removed and then select the entry to merge into LAST\nor leave the selection empty to stop merging for this msgid\n(press SPACE to mark, ENTER to continue/skip)"
                 selected = cast(
                     "list[PICK_RETURN_T[str]]",
-                    pick(options=options, title=title, indicator=PICK_INDICATOR, multiselect=True)
+                    pick(
+                        options=options,
+                        title=title,
+                        indicator=PICK_INDICATOR,
+                        multiselect=True,
+                    ),
                 )
                 selected_indices = [j for _, j in selected]
                 if not selected_indices:
-                    self.suggested_merges[msgid] = {entry.entry.msgstr for entry in entries}
+                    self.suggested_merges[msgid] = {
+                        entry.entry.msgstr for entry in entries
+                    }
                     break
 
                 removed_indices: set[int] = set()
@@ -459,8 +508,12 @@ class MergePO:
                     removed_indices.add(j)
                     removed_entries.add(entry)
                     entry.removal_reason = EntryRemovalReason.MERGED
-                entries = [entry for j, entry in enumerate(entries) if j not in removed_indices]
-        self.output_entries = [entry for entry in self.output_entries if entry not in removed_entries]
+                entries = [
+                    entry for j, entry in enumerate(entries) if j not in removed_indices
+                ]
+        self.output_entries = [
+            entry for entry in self.output_entries if entry not in removed_entries
+        ]
 
     def exclude_entries(self):
         """
@@ -472,7 +525,9 @@ class MergePO:
         title = f"ENTRY EXCLUSION\n\nSelect msgids of entries that you want to exclude from this file\n\nThe selected entries will be removed from and never added to the output file\nin further runs of the program for the same base file"
         selected = cast(
             "list[PICK_RETURN_T[str]]",
-            pick(options=options, title=title, indicator=PICK_INDICATOR, multiselect=True)
+            pick(
+                options=options, title=title, indicator=PICK_INDICATOR, multiselect=True
+            ),
         )
 
         for _, i in selected:
@@ -490,14 +545,18 @@ class MergePO:
         title = f"ENTRY UNEXCLUSION\n\nSelect msgids of entries that you want to unexclude for this file"
         selected = cast(
             "list[PICK_RETURN_T[str]]",
-            pick(options=options, title=title, indicator=PICK_INDICATOR, multiselect=True)
+            pick(
+                options=options, title=title, indicator=PICK_INDICATOR, multiselect=True
+            ),
         )
 
         for _, i in selected:
             self.excluded_msgids.remove(excluded_msgids[i])
 
     def suggest_translations(self):
-        matched_entries = [entry for entry in self.output_entries if self._is_matched_entry(entry)]
+        matched_entries = [
+            entry for entry in self.output_entries if self._is_matched_entry(entry)
+        ]
         if not matched_entries or not self.translations_glob:
             return
 
@@ -509,7 +568,9 @@ class MergePO:
                 entries_by_normalized_msgid[normalized_msgid].append(entry)
             else:
                 entries_by_normalized_msgid[normalized_msgid] = [entry]
-        suggested_msgstrs_by_msgid: dict[str, list[str]] = {msgid: [] for msgid in entries_by_normalized_msgid}
+        suggested_msgstrs_by_msgid: dict[str, list[str]] = {
+            msgid: [] for msgid in entries_by_normalized_msgid
+        }
 
         # find PO files
         po_files_paths = glob.glob(self.translations_glob, recursive=True)
@@ -518,7 +579,9 @@ class MergePO:
                 for entry in pofile(path):
                     normalized_msgid = MergePOEntry.get_normalized_msgid(entry.msgid)
                     if normalized_msgid in suggested_msgstrs_by_msgid:
-                        suggested_msgstrs_by_msgid[normalized_msgid].append(entry.msgstr)
+                        suggested_msgstrs_by_msgid[normalized_msgid].append(
+                            entry.msgstr
+                        )
             except OSError:
                 # PO syntax error in the file raised an exception
                 pass
@@ -527,7 +590,9 @@ class MergePO:
         entry_suggestions: list[Tuple[MergePOEntry, list[str]]] = []
         for msgid, suggestions in suggested_msgstrs_by_msgid.items():
             unique_suggestions: list[str] = []
-            added_suggestions = {entry.entry.msgstr for entry in entries_by_normalized_msgid[msgid]}
+            added_suggestions = {
+                entry.entry.msgstr for entry in entries_by_normalized_msgid[msgid]
+            }
             for msgstr in suggestions:
                 if msgstr not in added_suggestions:
                     unique_suggestions.append(msgstr)
@@ -537,14 +602,21 @@ class MergePO:
                     entry_suggestions.append((entry, unique_suggestions))
 
         for i, (entry, suggestions) in enumerate(entry_suggestions):
-            options = [f"{repr(entry.entry.msgstr)} (Original)"] + [repr(msgstr) for msgstr in suggestions]
+            options = [f"{repr(entry.entry.msgstr)} (Original)"] + [
+                repr(msgstr) for msgstr in suggestions
+            ]
             title = f"TRANSLATION SUGGESTION ({i + 1} of {len(entry_suggestions)})\n\nThe entry with following msgid:\n\n{repr(entry.entry.msgid)}\n\nmay be translated as one of the following:\n\n"
-            _, j = cast(PICK_RETURN_T[str], pick( options=options, title=title, indicator=PICK_INDICATOR))
+            _, j = cast(
+                PICK_RETURN_T[str],
+                pick(options=options, title=title, indicator=PICK_INDICATOR),
+            )
             if j != 0:
                 entry.entry.msgstr = suggestions[j - 1]
 
     def translate_interactively(self):
-        matched_entries = [entry for entry in self.output_entries if self._is_matched_entry(entry)]
+        matched_entries = [
+            entry for entry in self.output_entries if self._is_matched_entry(entry)
+        ]
         for i, entry in enumerate(matched_entries):
             print(
                 f"INTERACTIVE TRANSLATION ({i + 1} of {len(matched_entries)})\n\nEnter translation for the entry with the below msgid and msgstr or leave the input empty to leave its msgstr as it is\n\n{repr(entry.entry.msgid)} -> {repr(entry.entry.msgstr)}\n\n"
@@ -577,9 +649,16 @@ class MergePO:
                 if self._is_excluded_entry(entry):
                     continue
 
-                options = ["Yes", "No", "Exclude (No and exclude this entry from this base file forever)"]
+                options = [
+                    "Yes",
+                    "No",
+                    "Exclude (No and exclude this entry from this base file forever)",
+                ]
                 title = f"ADDED ENTRY CONFIRMATION ({i} of {added_entries_count})\n\nDo you want to add the following entry to the output file?\n\n{entry.entry}"
-                selected = cast(PICK_RETURN_T[str], pick(options=options, title=title, indicator=PICK_INDICATOR))
+                selected = cast(
+                    PICK_RETURN_T[str],
+                    pick(options=options, title=title, indicator=PICK_INDICATOR),
+                )
                 _, j = selected
                 if j == 0:
                     output_entries.append(entry)
@@ -612,14 +691,28 @@ class MergePO:
                 else:
                     modified_entries_count += 1
             if self.verbose or changes:
-                data.append([repr(entry.entry.msgid), repr(entry.entry.msgstr), entry.describe_changes()])
+                data.append(
+                    [
+                        repr(entry.entry.msgid),
+                        repr(entry.entry.msgstr),
+                        entry.describe_changes(),
+                    ]
+                )
 
         headers = ["Msgid", "Msgstr", "Changes"]
         maxcolwidths = [32, 32, 32]
 
         if data:
             print("[Output file entries]")
-            print(tabulate(data, headers=headers, maxcolwidths=maxcolwidths, tablefmt="simple_grid", showindex=True))
+            print(
+                tabulate(
+                    data,
+                    headers=headers,
+                    maxcolwidths=maxcolwidths,
+                    tablefmt="simple_grid",
+                    showindex=True,
+                )
+            )
             print()
 
         # Log removed entries table
@@ -627,14 +720,28 @@ class MergePO:
         for entry in self.entries:
             if entry.removal_reason and entry.is_base_entry():
                 removed_entries_count += 1
-                data.append([repr(entry.entry.msgid), repr(entry.entry.msgstr), entry.removal_reason.value])
+                data.append(
+                    [
+                        repr(entry.entry.msgid),
+                        repr(entry.entry.msgstr),
+                        entry.removal_reason.value,
+                    ]
+                )
 
         headers = ["Msgid", "Msgstr", "Removal Reason"]
         maxcolwidths = [32, 32, 32]
 
         if data:
             print("[Removed entries]")
-            print(tabulate(data, headers=headers, maxcolwidths=maxcolwidths, tablefmt="simple_grid", showindex=True))
+            print(
+                tabulate(
+                    data,
+                    headers=headers,
+                    maxcolwidths=maxcolwidths,
+                    tablefmt="simple_grid",
+                    showindex=True,
+                )
+            )
             print()
 
         # Log repeated msgstrs
@@ -650,7 +757,14 @@ class MergePO:
 
         if data:
             print("[Repeated Msgstrs]")
-            print(tabulate(data, headers=headers, maxcolwidths=maxcolwidths, tablefmt="simple_grid"))
+            print(
+                tabulate(
+                    data,
+                    headers=headers,
+                    maxcolwidths=maxcolwidths,
+                    tablefmt="simple_grid",
+                )
+            )
             print()
 
         # Log summary
@@ -673,18 +787,26 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-b", "--base-path", required=True, help="Base file path")
     parser.add_argument(
-        "-o", "--output-path", help="Output file path, if not given defaults to base path (replaces original file)"
+        "-o",
+        "--output-path",
+        help="Output file path, if not given defaults to base path (replaces original file)",
     )
-    parser.add_argument("-x", "--external-paths", nargs="+", help="External files paths", default=[])
+    parser.add_argument(
+        "-x", "--external-paths", nargs="+", help="External files paths", default=[]
+    )
     parser.add_argument("-e", "--exported-path", help="Exported file path")
     parser.add_argument(
-        "-r", "--regex", help="Match only entries that have references matching this regex. Default: all", default="."
+        "-r",
+        "--regex",
+        help="Match only entries that have references matching this regex. Default: all",
+        default=".",
     )
     parser.add_argument(
         "-S",
         "--sort-entries",
         action="store_true",
-        help="If this flag is passed then the entries are sorted in the output file according" " to msgid and msgstr",
+        help="If this flag is passed then the entries are sorted in the output file according"
+        " to msgid and msgstr",
     )
     parser.add_argument(
         "-s",
@@ -693,18 +815,44 @@ def main():
         help="If this flag is passed then the references of each entry are sorted in the output file",
     )
     parser.add_argument(
-        "-t", "--translations-glob", help="Suggest translations for matched entries from PO files matching glob pattern"
+        "-t",
+        "--translations-glob",
+        help="Suggest translations for matched entries from PO files matching glob pattern",
     )
     parser.add_argument(
-        "-i", "--interactive-translation", action="store_true", help="Interactively translate matched entries"
+        "-i",
+        "--interactive-translation",
+        action="store_true",
+        help="Interactively translate matched entries",
     )
-    parser.add_argument("-v", "--verbose", action="store_true", help="Log more information")
-    parser.add_argument("--exclude", action="store_true", help="Enters interactive selection mode for entries, where chosen entries will be removed and become excluded from ever being added according to this base file")
-    parser.add_argument("--unexclude", action="store_true", help="Interactively unexclude entries that were previously excluded")
-    parser.add_argument("--reset-excluded", action="store_true", help="Reset the exclusion status of all entries")
-    parser.add_argument("-c", "--confirm", action="store_true", help="Confirm every new entry added before adding it to the output file")
     parser.add_argument(
-        "--reset-suggested-merges", action="store_true", help="Reset the merge suggestion status of all entries (re-suggest merge suggestions already seen)"
+        "-v", "--verbose", action="store_true", help="Log more information"
+    )
+    parser.add_argument(
+        "--exclude",
+        action="store_true",
+        help="Enters interactive selection mode for entries, where chosen entries will be removed and become excluded from ever being added according to this base file",
+    )
+    parser.add_argument(
+        "--unexclude",
+        action="store_true",
+        help="Interactively unexclude entries that were previously excluded",
+    )
+    parser.add_argument(
+        "--reset-excluded",
+        action="store_true",
+        help="Reset the exclusion status of all entries",
+    )
+    parser.add_argument(
+        "-c",
+        "--confirm",
+        action="store_true",
+        help="Confirm every new entry added before adding it to the output file",
+    )
+    parser.add_argument(
+        "--reset-suggested-merges",
+        action="store_true",
+        help="Reset the merge suggestion status of all entries (re-suggest merge suggestions already seen)",
     )
 
     merge_po = MergePO(**vars(parser.parse_args()))
