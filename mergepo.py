@@ -196,20 +196,20 @@ class MergePO:
     def __init__(
         self,
         base_path: str,
-        output_path: Optional[str],
-        external_paths: "list[str]",
-        exported_path: Optional[str],
-        regex: str,
-        sort_entries: bool,
-        sort_references: bool,
-        interactive_translation: bool,
-        translations_glob: Optional[str],
-        verbose: bool,
-        exclude: bool,
-        unexclude: bool,
-        reset_excluded: bool,
-        confirm: bool,
-        reset_suggested_merges: bool,
+        output_path: Optional[str] = None,
+        external_paths: Optional["list[str]"] = None,
+        exported_path: Optional[str] = None,
+        regex: str = ".",
+        sort_entries: bool = False,
+        sort_references: bool = False,
+        interactive_translation: bool = False,
+        translations_glob: Optional[str] = None,
+        verbose: bool = False,
+        exclude: bool = False,
+        unexclude: bool = False,
+        reset_excluded: bool = False,
+        confirm: bool = False,
+        reset_suggested_merges: bool = False,
     ):
         self.base_path = Path(base_path).resolve()
         self.base_pofile = pofile(str(self.base_path))
@@ -220,7 +220,7 @@ class MergePO:
         ).hexdigest()
 
         self.output_path = Path(output_path or base_path).resolve()
-        self.external_paths = [Path(path).resolve() for path in external_paths]
+        self.external_paths = [Path(path).resolve() for path in external_paths or []]
         self.exported_path = Path(exported_path).resolve() if exported_path else None
 
         self.persistent_data_path = PERSISTENT_DATA_PATH.joinpath(
