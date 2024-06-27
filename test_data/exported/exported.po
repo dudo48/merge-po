@@ -1,0 +1,29 @@
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: Project\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2023-01-01\n"
+"PO-Revision-Date: 2023-01-01\n"
+"Last-Translator: <>\n"
+"Language-Team: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: \n"
+"Plural-Forms: \n"
+
+#. module: mergepo
+#: code:one/two/three/four/five/six/seven/eight/nine/ten:1
+#: code:one/two/three/four/five/six/seven/eight/nine/ten:2
+#: code:one/two/three/four/five/six/seven/eight/nine/ten:3
+#: code:one/two/three/four/five/six/seven/eight/nine/ten:4
+#: code:one/two/three/four/five/six/seven/eight/nine/ten:5
+#: code:one/two/three/four/five/six/seven/eight/nine/ten:6
+msgid "message"
+msgstr ""
+
+#. module: mergepo
+#: code:one/two/three/four/five/six/seven/eight/nine/ten:1
+#: code:one/two/three/four/five/six/seven/eight/nine/ten:2
+msgid "message1"
+msgstr ""
