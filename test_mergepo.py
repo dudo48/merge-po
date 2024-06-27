@@ -23,9 +23,7 @@ class Paths:
         answer_path = TEST_DATA_PATH / test_name / "answer.po"
         exported_path = TEST_DATA_PATH / test_name / "exported.po"
         return cls(
-            base_path=base_path,
-            answer_path=answer_path,
-            exported_path=exported_path
+            base_path=base_path, answer_path=answer_path, exported_path=exported_path
         )
 
 
@@ -42,25 +40,47 @@ def test_duplication(output_path: Path):
 
 def test_exported(output_path: Path):
     paths = Paths.from_test_name("exported")
-    MergePO(base_path=paths.base_path, exported_path=paths.exported_path, output_path=output_path).start()
+    MergePO(
+        base_path=paths.base_path,
+        exported_path=paths.exported_path,
+        output_path=output_path,
+    ).start()
     assert output_path.read_text() == paths.answer_path.read_text()
+
 
 def test_no_occurrences_1(output_path: Path):
     paths = Paths.from_test_name("no_occurrences_1")
     MergePO(base_path=paths.base_path, output_path=output_path).start()
     assert output_path.read_text() == paths.answer_path.read_text()
 
+
 def test_no_occurrences_2(output_path: Path):
     paths = Paths.from_test_name("no_occurrences_2")
-    MergePO(base_path=paths.base_path, exported_path=paths.exported_path, output_path=output_path).start()
+    MergePO(
+        base_path=paths.base_path,
+        exported_path=paths.exported_path,
+        output_path=output_path,
+    ).start()
     assert output_path.read_text() == paths.answer_path.read_text()
+
 
 def test_sorting(output_path: Path):
     paths = Paths.from_test_name("sorting")
-    MergePO(base_path=paths.base_path, output_path=output_path, sort_entries=True, sort_references=True).start()
+    MergePO(
+        base_path=paths.base_path,
+        output_path=output_path,
+        sort_entries=True,
+        sort_references=True,
+    ).start()
     assert output_path.read_text() == paths.answer_path.read_text()
+
 
 def test_matching(output_path: Path):
     paths = Paths.from_test_name("matching")
-    MergePO(base_path=paths.base_path, exported_path=paths.exported_path, output_path=output_path, regex="message[3-9]").start()
+    MergePO(
+        base_path=paths.base_path,
+        exported_path=paths.exported_path,
+        output_path=output_path,
+        regex="message[3-9]",
+    ).start()
     assert output_path.read_text() == paths.answer_path.read_text()
