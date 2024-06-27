@@ -19,9 +19,11 @@ from polib import POEntry, pofile
 from tabulate import tabulate
 
 MERGEPO_PATH = Path(__file__).parent.resolve()
-PERSISTENT_DATA_PATH = MERGEPO_PATH.joinpath(".persistent")
+PERSISTENT_DATA_PATH = MERGEPO_PATH / ".persistent"
 
 T = TypeVar("T")
+StrOrPath = Union[str, Path]
+
 PICK_INDICATOR = "=>"
 
 
@@ -195,10 +197,10 @@ class MergePOEntry:
 class MergePO:
     def __init__(
         self,
-        base_path: str,
-        output_path: Optional[str] = None,
-        external_paths: Optional["list[str]"] = None,
-        exported_path: Optional[str] = None,
+        base_path: StrOrPath,
+        output_path: Optional[StrOrPath] = None,
+        external_paths: Optional["list[StrOrPath]"] = None,
+        exported_path: Optional[StrOrPath] = None,
         regex: str = ".",
         sort_entries: bool = False,
         sort_references: bool = False,
@@ -223,13 +225,9 @@ class MergePO:
         self.external_paths = [Path(path).resolve() for path in external_paths or []]
         self.exported_path = Path(exported_path).resolve() if exported_path else None
 
-        self.persistent_data_path = PERSISTENT_DATA_PATH.joinpath(
-            self.base_file_identifier
-        )
-        self.excluded_file_path = self.persistent_data_path.joinpath("excluded")
-        self.suggested_merges_file_path = self.persistent_data_path.joinpath(
-            "suggested_merges"
-        )
+        self.persistent_data_path = PERSISTENT_DATA_PATH / self.base_file_identifier
+        self.excluded_file_path = self.persistent_data_path / "excluded"
+        self.suggested_merges_file_path = self.persistent_data_path / "suggested_merges"
 
         self.regex = regex
         self.sort_entries = sort_entries
