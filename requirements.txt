@@ -1,3 +1,9 @@
+exceptiongroup==1.2.1
+iniconfig==2.0.0
+packaging==24.1
 pick==2.2.0
+pluggy==1.5.0
 polib==1.2.0
+pytest==8.2.2
 tabulate==0.9.0
+tomli==2.0.1

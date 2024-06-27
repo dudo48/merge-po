@@ -160,6 +160,6 @@ wishlist.txt
 
 .python-version
 
-test/
 .vscode/
 .persistent/
+test_data/temp.po
