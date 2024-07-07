@@ -18,11 +18,12 @@ from pick import PICK_RETURN_T, pick
 from polib import POEntry, pofile
 from tabulate import tabulate
 
-MERGEPO_PATH = Path(__file__).parent.resolve()
+MERGEPO_PATH = Path(__file__).parent.parent.resolve()
 PERSISTENT_DATA_PATH = MERGEPO_PATH / ".persistent"
 
 T = TypeVar("T")
 StrOrPath = Union[str, Path]
+Occurrence = Tuple[str, str]
 
 PICK_INDICATOR = "=>"
 
@@ -163,10 +164,10 @@ class MergePOEntry:
 
         # ambiguous occurrences are occurrences which are present in source but not present in any destination entry
         # therefore, they're ambiguous because it is not clear which entry should be their destination
-        source_occurrences: set[tuple[str]] = set(source.entry.occurrences)
-        unambiguous_occurrences: set[tuple[str]] = set()
+        source_occurrences: set[Occurrence] = set(source.entry.occurrences)
+        unambiguous_occurrences: set[Occurrence] = set()
         for entry in destinations:
-            new_occurrences: list[tuple[str]] = []
+            new_occurrences: list[Occurrence] = []
             for occurrence in entry.entry.occurrences:
                 if occurrence in source_occurrences:
                     new_occurrences.append(occurrence)
@@ -186,7 +187,7 @@ class MergePOEntry:
             destinations[j].entry.occurrences.append(occurrence)
 
     @staticmethod
-    def filter_occurrences(occurrences: "list[tuple[str, str]]", regex: str):
+    def filter_occurrences(occurrences: "list[Occurrence]", regex: str):
         return [o for o in occurrences if re.search(regex, o[0])]
 
     @staticmethod
@@ -334,7 +335,7 @@ class MergePO:
         return result
 
     def _group_output_entries_by_msgid_msgstr(self):
-        result: dict[tuple[str], list[MergePOEntry]] = {}
+        result: dict[tuple[str, str], list[MergePOEntry]] = {}
         for entry in self.output_entries:
             key = (entry.entry.msgid, entry.entry.msgstr)
             if key in result:
@@ -388,7 +389,7 @@ class MergePO:
         Filter out entries which are duplicate in both msgid and msgstr
         """
         output_entries: list[MergePOEntry] = []
-        added_entries: dict[tuple[str], MergePOEntry] = {}
+        added_entries: dict[tuple[str, str], MergePOEntry] = {}
         for entry in self.output_entries:
             key = (entry.entry.msgid, entry.entry.msgstr)
             if self._is_matched_entry(entry) and key in added_entries:

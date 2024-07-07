@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mergepo"
+version = "0.1"
+authors = [{ name = "Fady Emad" }]
+dependencies = ["polib", "pick", "tabulate", "pytest"]
+
+[tool.setuptools.packages.find]
+include = ["mergepo"]
