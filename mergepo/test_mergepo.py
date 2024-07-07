@@ -4,7 +4,7 @@ from typing import Optional
 
 import pytest
 
-from mergepo import MERGEPO_PATH, MergePO
+from .mergepo import MERGEPO_PATH, MergePO
 
 TEST_DATA_PATH = MERGEPO_PATH / "test_data"
 
