@@ -30,7 +30,6 @@ class MergePO:
         regex: str = ".*",
         sort_entries: bool = False,
         sort_references: bool = False,
-        interactive_translation: bool = False,
         translations_glob: Optional[str] = None,
         verbose: bool = False,
         exclude: bool = False,
@@ -59,7 +58,6 @@ class MergePO:
         self.sort_entries = sort_entries
         self.sort_references = sort_references
         self.translations_glob = translations_glob
-        self.interactive_translation = interactive_translation
         self.verbose = verbose
         self.exclude = exclude
         self.unexclude = unexclude
@@ -123,10 +121,6 @@ class MergePO:
             self.suggest_translations()
 
             # filter duplicates again because some msgstrs may have been changed to be same as other entries
-            self.filter_duplicates()
-
-        if self.interactive_translation:
-            self.translate_interactively()
             self.filter_duplicates()
 
         if self.sort_entries:
@@ -425,19 +419,6 @@ class MergePO:
             if j != 0:
                 entry.msgstr = suggestions[j - 1]
 
-    def translate_interactively(self):
-        matched_entries = [
-            entry for entry in self.output_entries if self._is_matched_entry(entry)
-        ]
-        for i, entry in enumerate(matched_entries):
-            print(
-                f"INTERACTIVE TRANSLATION ({i + 1} of {len(matched_entries)})\n\nEnter translation for the entry with the below msgid and msgstr or leave the input empty to leave its msgstr as it is\n\n{repr(entry.msgid)} -> {repr(entry.msgstr)}\n\n"
-            )
-            new_msgstr = input(": ")
-            if new_msgstr:
-                entry.msgstr = new_msgstr
-            print("\n")
-
     def sort_occurrences(self):
         for entry in self.output_entries:
             if self._is_matched_entry(entry):
@@ -630,12 +611,6 @@ def main():
         "-t",
         "--translations-glob",
         help="Suggest translations for matched entries from PO files matching glob pattern",
-    )
-    parser.add_argument(
-        "-i",
-        "--interactive-translation",
-        action="store_true",
-        help="Interactively translate matched entries",
     )
     parser.add_argument(
         "-v", "--verbose", action="store_true", help="Log more information"
