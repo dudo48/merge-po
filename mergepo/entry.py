@@ -142,7 +142,7 @@ class MergePOEntry:
 
         # Detect changed translation
         if self.msgstr != self.original_msgstr:
-            changes.append(f"Updated msgstr")
+            changes.append("Updated msgstr")
 
         return ", ".join(changes)
 
