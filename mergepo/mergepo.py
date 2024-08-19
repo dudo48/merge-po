@@ -291,7 +291,15 @@ class MergePO:
         for i, (msgid, entries) in enumerate(entries_by_msgid.items()):
             while len(entries) > 1:
                 options = [repr(entry.msgstr) for entry in entries]
-                title = f"ENTRY MERGE SUGGESTION ({i + 1} of {len(entries_by_msgid)})\n\nThe entries with the following msgstrs have the same msgid:\n\n'{msgid}'\n\nDo you want to merge any of them? Select the ones you want to be merged and removed and then select the entry to merge into LAST\nor leave the selection empty to stop merging for this msgid\n(press SPACE to mark, ENTER to continue/skip)"
+                title = (
+                    f"ENTRY MERGE SUGGESTION ({i + 1} of {len(entries_by_msgid)})\n\n"
+                    "The entries with the following msgstrs have the same msgid:"
+                    "\n\n'{msgid}'\n\n"
+                    "Do you want to merge any of them? Select the ones you want to be merged and removed"
+                    " and then select the entry to merge into LAST\n"
+                    "or leave the selection empty to stop merging for this msgid\n"
+                    "(press SPACE to mark, ENTER to continue/skip)"
+                )
                 selected = cast(
                     "list[PICK_RETURN_T[str]]",
                     pick(
@@ -328,7 +336,12 @@ class MergePO:
         Excluded entries are always excluded regardless of whether or not they are matched.
         """
         options = [repr(entry.msgid) for entry in self.output_entries]
-        title = f"ENTRY EXCLUSION\n\nSelect msgids of entries that you want to exclude from this file\n\nThe selected entries will be removed from and never added to the output file\nin further runs of the program for the same base file"
+        title = (
+            "ENTRY EXCLUSION\n\n"
+            "Select msgids of entries that you want to exclude from this file\n\n"
+            "The selected entries will be removed from and never added to the output file\n"
+            "in further runs of the program for the same base file"
+        )
         selected = cast(
             "list[PICK_RETURN_T[str]]",
             pick(
@@ -348,7 +361,7 @@ class MergePO:
 
         excluded_msgids = sorted(self.excluded_msgids)
         options = [repr(msgid) for msgid in excluded_msgids]
-        title = f"ENTRY UNEXCLUSION\n\nSelect msgids of entries that you want to unexclude for this file"
+        title = "ENTRY UNEXCLUSION\n\nSelect msgids of entries that you want to unexclude for this file"
         selected = cast(
             "list[PICK_RETURN_T[str]]",
             pick(
@@ -411,7 +424,11 @@ class MergePO:
             options = [f"{repr(entry.msgstr)} (Original)"] + [
                 repr(msgstr) for msgstr in suggestions
             ]
-            title = f"TRANSLATION SUGGESTION ({i + 1} of {len(entry_suggestions)})\n\nThe entry with following msgid:\n\n{repr(entry.msgid)}\n\nmay be translated as one of the following:\n\n"
+            title = (
+                f"TRANSLATION SUGGESTION ({i + 1} of {len(entry_suggestions)})\n\n"
+                "The entry with following msgid:\n\n"
+                "{repr(entry.msgid)}\n\nmay be translated as one of the following:\n\n"
+            )
             _, j = cast(
                 PICK_RETURN_T[str],
                 pick(options=options, title=title, indicator=PICK_INDICATOR),
@@ -447,7 +464,10 @@ class MergePO:
                     "No",
                     "Exclude (No and exclude this entry from this base file forever)",
                 ]
-                title = f"ADDED ENTRY CONFIRMATION ({i} of {added_entries_count})\n\nDo you want to add the following entry to the output file?\n\n{entry.entry}"
+                title = (
+                    f"ADDED ENTRY CONFIRMATION ({i} of {added_entries_count})\n\n"
+                    "Do you want to add the following entry to the output file?\n\n{entry.entry}"
+                )
                 selected = cast(
                     PICK_RETURN_T[str],
                     pick(options=options, title=title, indicator=PICK_INDICATOR),
@@ -468,9 +488,9 @@ class MergePO:
 
     def describe_changes(self):
         if self.sort_entries:
-            print(f"Sorted entries")
+            print("Sorted entries")
         if self.sort_references:
-            print(f"Sorted references")
+            print("Sorted references")
 
         added_entries_count = modified_entries_count = removed_entries_count = 0
 
