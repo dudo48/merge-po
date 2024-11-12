@@ -296,12 +296,12 @@ class MergePO:
                 options = [repr(entry.msgstr) for entry in entries]
                 title = (
                     f"ENTRY MERGE SUGGESTION ({i + 1} of {len(entries_by_msgid)})\n\n"
-                    "The entries with the following msgstrs have the same msgid:"
-                    "\n\n'{msgid}'\n\n"
-                    "Do you want to merge any of them? Select the ones you want to be merged and removed"
-                    " and then select the entry to merge into LAST\n"
-                    "or leave the selection empty to stop merging for this msgid\n"
-                    "(press SPACE to mark, ENTER to continue/skip)"
+                    f"The entries with the following msgstrs have the same msgid:"
+                    f"\n\n{repr(msgid)}\n\n"
+                    f"Do you want to merge any of them? Select the ones you want to be merged and removed"
+                    f" and then select the entry to merge into LAST\n"
+                    f"or leave the selection empty to stop merging for this msgid\n"
+                    f"(press SPACE to mark, ENTER to continue/skip)"
                 )
                 selected = cast(
                     "list[PICK_RETURN_T[str]]",
@@ -426,8 +426,8 @@ class MergePO:
             ]
             title = (
                 f"TRANSLATION SUGGESTION ({i + 1} of {len(entry_suggestions)})\n\n"
-                "The entry with following msgid:\n\n"
-                "{repr(entry.msgid)}\n\nmay be translated as one of the following:\n\n"
+                f"The entry with following msgid:\n\n"
+                f"{repr(entry.msgid)}\n\nmay be translated as one of the following:\n\n"
             )
             _, j = cast(
                 PICK_RETURN_T[str],
@@ -470,8 +470,8 @@ class MergePO:
 
             title = (
                 f"REMOVED ENTRY CONFIRMATION ({i} of {removed_entries_count})\n\n"
-                "Are you sure you want to remove the following entry from the output file?\n\n"
-                f"Removal reason: {entry.removal_reason.value}\n\n{entry.entry}"
+                f"Are you sure you want to remove the following entry from the output file?\n\n"
+                f"Removal reason: {repr(entry.removal_reason.value)}\n\n{entry.entry}"
             )
             selected = cast(
                 PICK_RETURN_T[str],
@@ -514,7 +514,7 @@ class MergePO:
                 ]
                 title = (
                     f"ADDED ENTRY CONFIRMATION ({i} of {added_entries_count})\n\n"
-                    "Do you want to add the following entry to the output file?\n\n{entry.entry}"
+                    f"Do you want to add the following entry to the output file?\n\n{entry.entry}"
                 )
                 selected = cast(
                     PICK_RETURN_T[str],
