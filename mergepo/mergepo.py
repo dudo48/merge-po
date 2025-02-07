@@ -28,8 +28,6 @@ class MergePO:
         sort_entries: bool = False,
         sort_references: bool = False,
         verbose: bool = False,
-        confirm_new: bool = False,
-        confirm_removed: bool = False,
         reset_suggested_merges: bool = False,
     ):
         self.base_path = Path(base_path).resolve()
@@ -49,8 +47,6 @@ class MergePO:
         self.sort_entries = sort_entries
         self.sort_references = sort_references
         self.verbose = verbose
-        self.confirm_new = confirm_new
-        self.confirm_removed = confirm_removed
         self.reset_suggested_merges = reset_suggested_merges
 
         self.entries: list[MergePOEntry] = []
@@ -88,13 +84,7 @@ class MergePO:
         self.filter_no_occurrences()
         self.filter_duplicate_occurrences()
 
-        if self.confirm_removed:
-            self.confirm_removed_entries()
-
         self.filter_removed_entries()
-
-        if self.confirm_new:
-            self.confirm_new_entries()
 
         if self.sort_entries:
             self.output_entries.sort()
@@ -256,83 +246,6 @@ class MergePO:
         for entry in self.output_entries:
             entry.occurrences.sort()
 
-    def confirm_removed_entries(self):
-        confirmable_removal_reasons = {
-            EntryRemovalReason.NOT_IN_EXPORTED,
-            EntryRemovalReason.NO_OCCURRENCES,
-        }
-        removed_entries_count = 0
-        for entry in self.output_entries:
-            if (
-                entry.removal_reason in confirmable_removal_reasons
-                and entry.is_base_entry()
-            ):
-                removed_entries_count += 1
-
-        if not removed_entries_count:
-            return
-
-        i = 1
-        for entry in self.output_entries:
-            if (
-                entry.removal_reason not in confirmable_removal_reasons
-                or not entry.is_base_entry()
-            ):
-                continue
-
-            options = ["Yes", "No"]
-            title = (
-                f"REMOVED ENTRY CONFIRMATION ({i} of {removed_entries_count})\n\n"
-                f"Are you sure you want to remove the following entry from the output file?\n\n"
-                f"Removal reason: {repr(entry.removal_reason.value)}\n\n{entry.entry}"
-            )
-            selected = cast(
-                PICK_RETURN_T[str],
-                pick(options=options, title=title, indicator=PICK_INDICATOR),
-            )
-            _, j = selected
-            if j == 0:
-                # the choice is 'Yes' so do nothing
-                pass
-            elif j == 1:
-                entry.removal_reason = None
-            i += 1
-
-    def confirm_new_entries(self):
-        output_entries: list[MergePOEntry] = []
-        added_entries_count = 0
-
-        for entry in self.output_entries:
-            if not entry.is_base_entry():
-                added_entries_count += 1
-
-        if not added_entries_count:
-            return
-
-        i = 1
-        for entry in self.output_entries:
-            if not entry.is_base_entry():
-                options = ["Yes", "No"]
-                title = (
-                    f"ADDED ENTRY CONFIRMATION ({i} of {added_entries_count})\n\n"
-                    f"Do you want to add the following entry to the output file?\n\n{entry.entry}"
-                )
-                selected = cast(
-                    PICK_RETURN_T[str],
-                    pick(options=options, title=title, indicator=PICK_INDICATOR),
-                )
-                _, j = selected
-                if j == 0:
-                    output_entries.append(entry)
-                elif j == 1:
-                    # the choice is 'No' so do nothing
-                    pass
-                i += 1
-            else:
-                output_entries.append(entry)
-
-        self.output_entries = output_entries
-
     def describe_changes(self):
         if self.sort_entries:
             print("Sorted entries")
@@ -467,18 +380,6 @@ def main():
     )
     parser.add_argument(
         "-v", "--verbose", action="store_true", help="Log more information"
-    )
-    parser.add_argument(
-        "-c",
-        "--confirm-new",
-        action="store_true",
-        help="Confirm every new entry added before adding it to the output file",
-    )
-    parser.add_argument(
-        "-C",
-        "--confirm-removed",
-        action="store_true",
-        help="Confirm every removed entry before removing it from the output file",
     )
     parser.add_argument(
         "--reset-suggested-merges",
