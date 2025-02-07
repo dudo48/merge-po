@@ -5,11 +5,10 @@ but by the repetition of slowly destructive little things.
 """
 
 import argparse
-import glob
 import hashlib
 import pickle
 from pathlib import Path
-from typing import Optional, Tuple, Union, cast
+from typing import Optional, Union, cast
 
 from pick import PICK_RETURN_T, pick
 from polib import pofile
@@ -28,7 +27,6 @@ class MergePO:
         exported_path: Optional[Path] = None,
         sort_entries: bool = False,
         sort_references: bool = False,
-        translations_glob: Optional[str] = None,
         verbose: bool = False,
         confirm_new: bool = False,
         confirm_removed: bool = False,
@@ -50,7 +48,6 @@ class MergePO:
 
         self.sort_entries = sort_entries
         self.sort_references = sort_references
-        self.translations_glob = translations_glob
         self.verbose = verbose
         self.confirm_new = confirm_new
         self.confirm_removed = confirm_removed
@@ -98,13 +95,6 @@ class MergePO:
 
         if self.confirm_new:
             self.confirm_new_entries()
-
-        if self.translations_glob:
-            self.suggest_translations()
-
-            # filter duplicates again because some msgstrs may have been changed to be same as other entries
-            self.filter_duplicates()
-            self.filter_removed_entries()
 
         if self.sort_entries:
             self.output_entries.sort()
@@ -261,68 +251,6 @@ class MergePO:
                 entries = [
                     entry for j, entry in enumerate(entries) if j not in removed_indices
                 ]
-
-    def suggest_translations(self):
-        entries = [entry for entry in self.non_removed_output_entries()]
-        if not entries or not self.translations_glob:
-            return
-
-        # group entries by normalized msgid
-        entries_by_normalized_msgid: dict[str, list[MergePOEntry]] = {}
-        for entry in entries:
-            normalized_msgid = MergePOEntry.get_normalized_msgid(entry.msgid)
-            if normalized_msgid in entries_by_normalized_msgid:
-                entries_by_normalized_msgid[normalized_msgid].append(entry)
-            else:
-                entries_by_normalized_msgid[normalized_msgid] = [entry]
-        suggested_msgstrs_by_msgid: dict[str, list[str]] = {
-            msgid: [] for msgid in entries_by_normalized_msgid
-        }
-
-        # find PO files
-        po_files_paths = glob.glob(self.translations_glob, recursive=True)
-        for path in po_files_paths:
-            try:
-                for entry in pofile(path):
-                    normalized_msgid = MergePOEntry.get_normalized_msgid(entry.msgid)
-                    if normalized_msgid in suggested_msgstrs_by_msgid:
-                        suggested_msgstrs_by_msgid[normalized_msgid].append(
-                            entry.msgstr
-                        )
-            except OSError:
-                # PO syntax error in the file raised an exception
-                pass
-
-        # filter out repeated suggestions and suggestions equal to original msgstr
-        entry_suggestions: list[Tuple[MergePOEntry, list[str]]] = []
-        for msgid, suggestions in suggested_msgstrs_by_msgid.items():
-            unique_suggestions: list[str] = []
-            added_suggestions = {
-                entry.msgstr for entry in entries_by_normalized_msgid[msgid]
-            }
-            for msgstr in suggestions:
-                if msgstr not in added_suggestions:
-                    unique_suggestions.append(msgstr)
-                    added_suggestions.add(msgstr)
-            if unique_suggestions:
-                for entry in entries_by_normalized_msgid[msgid]:
-                    entry_suggestions.append((entry, unique_suggestions))
-
-        for i, (entry, suggestions) in enumerate(entry_suggestions):
-            options = [f"{repr(entry.msgstr)} (Original)"] + [
-                repr(msgstr) for msgstr in suggestions
-            ]
-            title = (
-                f"TRANSLATION SUGGESTION ({i + 1} of {len(entry_suggestions)})\n\n"
-                f"The entry with following msgid:\n\n"
-                f"{repr(entry.msgid)}\n\nmay be translated as one of the following:\n\n"
-            )
-            _, j = cast(
-                PICK_RETURN_T[str],
-                pick(options=options, title=title, indicator=PICK_INDICATOR),
-            )
-            if j != 0:
-                entry.msgstr = suggestions[j - 1]
 
     def sort_occurrences(self):
         for entry in self.output_entries:
@@ -536,11 +464,6 @@ def main():
         "--sort-references",
         action="store_true",
         help="If this flag is passed then the references of each entry are sorted in the output file",
-    )
-    parser.add_argument(
-        "-t",
-        "--translations-glob",
-        help="Suggest translations for the entries from PO files matching glob pattern",
     )
     parser.add_argument(
         "-v", "--verbose", action="store_true", help="Log more information"

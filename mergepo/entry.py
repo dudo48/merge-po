@@ -27,7 +27,6 @@ class MergePOEntry:
         self.entry = entry
         self.source = source
         self.original_occurrences = [occurrence for occurrence in entry.occurrences]
-        self.original_msgstr = entry.msgstr
         self.removal_reason: Optional[EntryRemovalReason] = None
 
     @property
@@ -108,10 +107,6 @@ class MergePOEntry:
             changes.append(
                 f"Added {sum(added_occurrences.values())} and removed {sum(removed_occurrences.values())} references"
             )
-
-        # Detect changed translation
-        if self.msgstr != self.original_msgstr:
-            changes.append("Updated msgstr")
 
         return ", ".join(changes)
 
