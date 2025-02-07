@@ -31,9 +31,6 @@ class MergePO:
         sort_references: bool = False,
         translations_glob: Optional[str] = None,
         verbose: bool = False,
-        exclude: bool = False,
-        unexclude: bool = False,
-        reset_excluded: bool = False,
         confirm_new: bool = False,
         confirm_removed: bool = False,
         reset_suggested_merges: bool = False,
@@ -51,16 +48,12 @@ class MergePO:
         self.exported_path = Path(exported_path).resolve() if exported_path else None
 
         self.persistent_data_path = PERSISTENT_DATA_PATH / self.base_file_identifier
-        self.excluded_file_path = self.persistent_data_path / "excluded"
         self.suggested_merges_file_path = self.persistent_data_path / "suggested_merges"
 
         self.sort_entries = sort_entries
         self.sort_references = sort_references
         self.translations_glob = translations_glob
         self.verbose = verbose
-        self.exclude = exclude
-        self.unexclude = unexclude
-        self.reset_excluded = reset_excluded
         self.confirm_new = confirm_new
         self.confirm_removed = confirm_removed
         self.reset_suggested_merges = reset_suggested_merges
@@ -68,9 +61,6 @@ class MergePO:
         self.entries: list[MergePOEntry] = []
         self.output_entries: list[MergePOEntry] = []
 
-        self.excluded_msgids: "set[str]" = (
-            load_persistent_data(self.excluded_file_path) or set()
-        )
         self.suggested_merges: "dict[str, set[str]]" = (
             load_persistent_data(self.suggested_merges_file_path) or dict()
         )
@@ -83,7 +73,6 @@ class MergePO:
     def start(self):
         self._run()
 
-        save_persistent_data(self.excluded_file_path, self.excluded_msgids)
         save_persistent_data(self.suggested_merges_file_path, self.suggested_merges)
 
         self.save_output_file()
@@ -97,18 +86,6 @@ class MergePO:
         if self.exported_path:
             self.add_exported_entries()
             self.filter_not_in_exported()
-
-        if self.reset_excluded:
-            self.excluded_msgids.clear()
-
-        if self.unexclude:
-            self.unexclude_entries()
-
-        if self.exclude:
-            # filter before adding new excluded entries and after
-            self.filter_excluded_entries()
-            self.exclude_entries()
-        self.filter_excluded_entries()
 
         if self.reset_suggested_merges:
             self.suggested_merges.clear()
@@ -137,9 +114,6 @@ class MergePO:
 
         if self.sort_references:
             self.sort_occurrences()
-
-    def _is_excluded_entry(self, entry: MergePOEntry):
-        return entry.msgid in self.excluded_msgids
 
     def _group_output_entries_by_msgid(self):
         result: dict[str, list[MergePOEntry]] = {}
@@ -244,14 +218,6 @@ class MergePO:
             if not entry.occurrences:
                 entry.removal_reason = EntryRemovalReason.NO_OCCURRENCES
 
-    def filter_excluded_entries(self):
-        """
-        Filter out entries which were previously excluded
-        """
-        for entry in self.non_removed_output_entries():
-            if self._is_excluded_entry(entry):
-                entry.removal_reason = EntryRemovalReason.EXCLUDED
-
     def filter_removed_entries(self):
         """
         Actually filter out removed entries from output entries
@@ -307,49 +273,6 @@ class MergePO:
                 entries = [
                     entry for j, entry in enumerate(entries) if j not in removed_indices
                 ]
-
-    def exclude_entries(self):
-        """
-        Interactively exclude certain entries from being added to the output file.
-        The excluded entries persist between program runs.
-        """
-        output_entries = list(self.non_removed_output_entries())
-        options = [repr(entry.msgid) for entry in output_entries]
-        title = (
-            "ENTRY EXCLUSION\n\n"
-            "Select msgids of entries that you want to exclude from this file\n\n"
-            "The selected entries will be removed from and never added to the output file\n"
-            "in further runs of the program for the same base file"
-        )
-        selected = cast(
-            "list[PICK_RETURN_T[str]]",
-            pick(
-                options=options, title=title, indicator=PICK_INDICATOR, multiselect=True
-            ),
-        )
-
-        for _, i in selected:
-            self.excluded_msgids.add(output_entries[i].msgid)
-
-    def unexclude_entries(self):
-        """
-        Unexclude entries that were previously excluded
-        """
-        if not self.excluded_msgids:
-            return
-
-        excluded_msgids = sorted(self.excluded_msgids)
-        options = [repr(msgid) for msgid in excluded_msgids]
-        title = "ENTRY UNEXCLUSION\n\nSelect msgids of entries that you want to unexclude for this file"
-        selected = cast(
-            "list[PICK_RETURN_T[str]]",
-            pick(
-                options=options, title=title, indicator=PICK_INDICATOR, multiselect=True
-            ),
-        )
-
-        for _, i in selected:
-            self.excluded_msgids.remove(excluded_msgids[i])
 
     def suggest_translations(self):
         entries = [entry for entry in self.non_removed_output_entries()]
@@ -421,7 +344,6 @@ class MergePO:
         confirmable_removal_reasons = {
             EntryRemovalReason.NOT_IN_EXPORTED,
             EntryRemovalReason.NO_OCCURRENCES,
-            EntryRemovalReason.EXCLUDED,
         }
         removed_entries_count = 0
         for entry in self.output_entries:
@@ -443,13 +365,6 @@ class MergePO:
                 continue
 
             options = ["Yes", "No"]
-            if self._is_excluded_entry(entry):
-                options.append("Unexclude")
-            elif entry.removal_reason is EntryRemovalReason.EXCLUDED:
-                # this msgid was unexcluded through a previous iteration, so skip and do not remove it
-                entry.removal_reason = None
-                continue
-
             title = (
                 f"REMOVED ENTRY CONFIRMATION ({i} of {removed_entries_count})\n\n"
                 f"Are you sure you want to remove the following entry from the output file?\n\n"
@@ -464,10 +379,6 @@ class MergePO:
                 # the choice is 'Yes' so do nothing
                 pass
             elif j == 1:
-                entry.removal_reason = None
-            elif j == 2:
-                # Unexclude entry
-                self.excluded_msgids.remove(entry.msgid)
                 entry.removal_reason = None
             i += 1
 
@@ -485,15 +396,7 @@ class MergePO:
         i = 1
         for entry in self.output_entries:
             if not entry.is_base_entry():
-                # this msgid was excluded through a previous iteration, so skip it and do not add it
-                if self._is_excluded_entry(entry):
-                    continue
-
-                options = [
-                    "Yes",
-                    "No",
-                    "Exclude (No and exclude this entry from this base file forever)",
-                ]
+                options = ["Yes", "No"]
                 title = (
                     f"ADDED ENTRY CONFIRMATION ({i} of {added_entries_count})\n\n"
                     f"Do you want to add the following entry to the output file?\n\n{entry.entry}"
@@ -508,8 +411,6 @@ class MergePO:
                 elif j == 1:
                     # the choice is 'No' so do nothing
                     pass
-                elif j == 2:
-                    self.excluded_msgids.add(entry.msgid)
                 i += 1
             else:
                 output_entries.append(entry)
@@ -658,21 +559,6 @@ def main():
     )
     parser.add_argument(
         "-v", "--verbose", action="store_true", help="Log more information"
-    )
-    parser.add_argument(
-        "--exclude",
-        action="store_true",
-        help="Enters interactive selection mode for entries, where chosen entries will be removed and become excluded from ever being added according to this base file",
-    )
-    parser.add_argument(
-        "--unexclude",
-        action="store_true",
-        help="Interactively unexclude entries that were previously excluded",
-    )
-    parser.add_argument(
-        "--reset-excluded",
-        action="store_true",
-        help="Reset the exclusion status of all entries",
     )
     parser.add_argument(
         "-c",

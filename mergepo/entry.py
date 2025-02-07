@@ -20,7 +20,6 @@ class EntryRemovalReason(Enum):
     DUPLICATE = "Duplicate entry"
     NOT_IN_EXPORTED = "Not in exported file"
     NO_OCCURRENCES = "No references"
-    EXCLUDED = "Excluded entry"
     MERGED = "Merged with another entry"
 
 
