@@ -12,8 +12,7 @@ Occurrence = Tuple[str, str]
 
 class EntrySource(Enum):
     BASE = 0
-    EXTERNAL = 1
-    EXPORTED = 2
+    EXPORTED = 1
 
 
 class EntryRemovalReason(Enum):
@@ -88,9 +87,6 @@ class MergePOEntry:
     def is_base_entry(self):
         return self.source == EntrySource.BASE
 
-    def is_external_entry(self):
-        return self.source == EntrySource.EXTERNAL
-
     def is_exported_entry(self):
         return self.source == EntrySource.EXPORTED
 
@@ -98,8 +94,6 @@ class MergePOEntry:
         changes: list[str] = []
 
         # Tell if file was not originally in the base file
-        if self.is_external_entry():
-            changes.append("Added from external file")
         if self.is_exported_entry():
             changes.append("Added from exported file")
 

@@ -25,7 +25,6 @@ class MergePO:
         self,
         base_path: Path,
         output_path: Optional[Path] = None,
-        external_paths: Optional["list[Path]"] = None,
         exported_path: Optional[Path] = None,
         sort_entries: bool = False,
         sort_references: bool = False,
@@ -44,7 +43,6 @@ class MergePO:
         ).hexdigest()
 
         self.output_path = Path(output_path or base_path).resolve()
-        self.external_paths = [Path(path).resolve() for path in external_paths or []]
         self.exported_path = Path(exported_path).resolve() if exported_path else None
 
         self.persistent_data_path = PERSISTENT_DATA_PATH / self.base_file_identifier
@@ -81,7 +79,6 @@ class MergePO:
     def _run(self):
         self.find_entries()
         self.add_base_entries()
-        self.add_external_entries()
         self.filter_duplicates()
         if self.exported_path:
             self.add_exported_entries()
@@ -150,10 +147,6 @@ class MergePO:
         for entry in self.base_pofile:
             self.entries.append(MergePOEntry(entry, EntrySource.BASE))
 
-        for external_path in self.external_paths:
-            for entry in pofile(str(external_path)):
-                self.entries.append(MergePOEntry(entry, EntrySource.EXTERNAL))
-
         if self.exported_path:
             for entry in pofile(str(self.exported_path)):
                 self.entries.append(MergePOEntry(entry, EntrySource.EXPORTED))
@@ -161,11 +154,6 @@ class MergePO:
     def add_base_entries(self):
         for entry in self.entries:
             if entry.is_base_entry():
-                self.output_entries.append(entry)
-
-    def add_external_entries(self):
-        for entry in self.entries:
-            if entry.is_external_entry():
                 self.output_entries.append(entry)
 
     def add_exported_entries(self):
@@ -534,9 +522,6 @@ def main():
         "-o",
         "--output-path",
         help="Output file path, if not given defaults to base path (replaces original file)",
-    )
-    parser.add_argument(
-        "-x", "--external-paths", nargs="+", help="External files paths", default=[]
     )
     parser.add_argument("-e", "--exported-path", help="Exported file path")
     parser.add_argument(
