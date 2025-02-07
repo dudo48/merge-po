@@ -1,4 +1,3 @@
-import re
 from collections import Counter
 from enum import Enum
 from typing import Optional, Tuple, cast
@@ -65,29 +64,6 @@ class MergePOEntry:
 
     def __lt__(self, other: "MergePOEntry"):
         return self.__key() < other.__key()
-
-    # functions to check if a specific part of the entry matches a regex
-    def _occurrences_match(self, regex: str):
-        matched_occurrences = MergePOEntry.filter_occurrences(self.occurrences, regex)
-
-        # empty occurrences are always matched
-        return matched_occurrences or not self.occurrences
-
-    def _msgid_matches(self, regex: str):
-        return bool(re.search(regex, self.msgid))
-
-    def _msgstr_matches(self, regex: str):
-        return bool(re.search(regex, self.msgstr))
-
-    def matches(self, regex: str):
-        """
-        Whether the entry matches a regex
-        """
-        return (
-            self._occurrences_match(regex)
-            or self._msgid_matches(regex)
-            or self._msgstr_matches(regex)
-        )
 
     def filter_duplicate_occurrences(self):
         # used dict keys to maintain list order
@@ -179,10 +155,6 @@ class MergePOEntry:
                 pick(options=options, title=title, indicator=PICK_INDICATOR),
             )
             destinations[j].occurrences.append(occurrence)
-
-    @staticmethod
-    def filter_occurrences(occurrences: "list[Occurrence]", regex: str):
-        return [o for o in occurrences if re.search(regex, o[0])]
 
     @staticmethod
     def get_normalized_msgid(msgid: str):
