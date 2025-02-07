@@ -27,7 +27,6 @@ class MergePO:
         exported_path: Optional[Path] = None,
         sort_entries: bool = False,
         sort_references: bool = False,
-        verbose: bool = False,
         reset_suggested_merges: bool = False,
     ):
         self.base_path = Path(base_path).resolve()
@@ -46,7 +45,6 @@ class MergePO:
 
         self.sort_entries = sort_entries
         self.sort_references = sort_references
-        self.verbose = verbose
         self.reset_suggested_merges = reset_suggested_merges
 
         self.entries: list[MergePOEntry] = []
@@ -263,7 +261,7 @@ class MergePO:
                     added_entries_count += 1
                 else:
                     modified_entries_count += 1
-            if self.verbose or changes:
+            if changes:
                 data.append(
                     [
                         repr(entry.msgid),
@@ -377,9 +375,6 @@ def main():
         "--sort-references",
         action="store_true",
         help="If this flag is passed then the references of each entry are sorted in the output file",
-    )
-    parser.add_argument(
-        "-v", "--verbose", action="store_true", help="Log more information"
     )
     parser.add_argument(
         "--reset-suggested-merges",
