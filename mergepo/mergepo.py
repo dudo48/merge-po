@@ -28,8 +28,6 @@ class MergePO:
         sort_entries: bool = False,
         sort_references: bool = False,
         reset_suggested_merges: bool = False,
-        reset_added_msgids: bool = False,
-        reset_removed_msgids: bool = False,
     ):
         self.base_path = Path(base_path).resolve()
         self.base_pofile = pofile(str(self.base_path))
@@ -44,27 +42,16 @@ class MergePO:
 
         self.persistent_data_path = PERSISTENT_DATA_PATH / self.base_file_identifier
         self.suggested_merges_file_path = self.persistent_data_path / "suggested_merges"
-        self.added_msgids_file_path = self.persistent_data_path / "added_msgids"
-        self.removed_msgids_file_path = self.persistent_data_path / "removed_msgids"
 
         self.sort_entries = sort_entries
         self.sort_references = sort_references
-
         self.reset_suggested_merges = reset_suggested_merges
-        self.reset_added_msgids = reset_added_msgids
-        self.reset_removed_msgids = reset_removed_msgids
 
         self.entries: list[MergePOEntry] = []
         self.output_entries: list[MergePOEntry] = []
 
         self.suggested_merges: "dict[str, set[str]]" = (
             load_persistent_data(self.suggested_merges_file_path) or dict()
-        )
-        self.added_msgids: "set[str]" = (
-            load_persistent_data(self.added_msgids_file_path) or set()
-        )
-        self.removed_msgids: "set[str]" = (
-            load_persistent_data(self.removed_msgids_file_path) or set()
         )
 
     def non_removed_output_entries(self):
@@ -76,8 +63,6 @@ class MergePO:
         self._run()
 
         save_persistent_data(self.suggested_merges_file_path, self.suggested_merges)
-        save_persistent_data(self.added_msgids_file_path, self.added_msgids)
-        save_persistent_data(self.removed_msgids_file_path, self.removed_msgids)
 
         self.save_output_file()
         self.describe_changes()
@@ -97,13 +82,6 @@ class MergePO:
         self.filter_no_occurrences()
         self.filter_duplicate_occurrences()
 
-        if self.reset_added_msgids:
-            self.added_msgids.clear()
-
-        if self.reset_removed_msgids:
-            self.removed_msgids.clear()
-
-        self.filter_and_set_added_and_removed()
         self.filter_removed_entries()
 
         if self.sort_entries:
@@ -211,30 +189,6 @@ class MergePO:
         Actually filter out removed entries from output entries
         """
         self.output_entries = list(self.non_removed_output_entries())
-
-    def filter_and_set_added_and_removed(self):
-        """Prevent addition/removal of entries which were previously added/removed
-        and add msgids of newly added/removed entries to their respective sets"""
-        output_entries: list[MergePOEntry] = []
-        for entry in self.output_entries:
-            msgid = entry.msgid
-            if not entry.is_base_entry() and msgid in self.added_msgids:
-                continue
-            if (
-                entry.removal_reason is EntryRemovalReason.NOT_IN_EXPORTED
-                and msgid in self.removed_msgids
-            ):
-                entry.removal_reason = None
-            output_entries.append(entry)
-
-        self.output_entries = output_entries
-        for entry in self.output_entries:
-            added = not entry.is_base_entry()
-            removed = entry.removal_reason is EntryRemovalReason.NOT_IN_EXPORTED
-            if added and not removed:
-                self.added_msgids.add(entry.msgid)
-            if removed and not added:
-                self.removed_msgids.add(entry.msgid)
 
     def suggest_merge_same_msgid(self):
         """
@@ -426,18 +380,6 @@ def main():
         "--reset-suggested-merges",
         action="store_true",
         help="Reset the merge suggestion status of all entries (re-suggest merge suggestions already seen)",
-    )
-    parser.add_argument(
-        "-r",
-        "--reset-added-msgids",
-        action="store_true",
-        help="Reset the addition status of all entries (re-add entries with msgids added from a previous run if they do not exist in the base file)",
-    )
-    parser.add_argument(
-        "-R",
-        "--reset-removed-msgids",
-        action="store_true",
-        help="Reset the removal status of all entries (remove again entries with msgids removed from a previous run if they do exist in the base file)",
     )
 
     merge_po = MergePO(**vars(parser.parse_args()))

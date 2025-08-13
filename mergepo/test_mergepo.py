@@ -43,8 +43,6 @@ def test_exported(output_path: Path):
         base_path=paths.base_path,
         exported_path=paths.exported_path,
         output_path=output_path,
-        reset_added_msgids=True,
-        reset_removed_msgids=True,
     ).start()
     assert output_path.read_text() == paths.answer_path.read_text()
 
