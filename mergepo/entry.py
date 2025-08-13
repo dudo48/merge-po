@@ -84,15 +84,15 @@ class MergePOEntry:
         )
 
     def is_base_entry(self):
-        return self.source == EntrySource.BASE
+        return self.source is EntrySource.BASE
 
     def is_exported_entry(self):
-        return self.source == EntrySource.EXPORTED
+        return self.source is EntrySource.EXPORTED
 
     def describe_changes(self):
         changes: list[str] = []
 
-        # Tell if file was not originally in the base file
+        # Tell if entry was not originally in the base file
         if self.is_exported_entry():
             changes.append("Added from exported file")
 

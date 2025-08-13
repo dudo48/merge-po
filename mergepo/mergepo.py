@@ -25,6 +25,7 @@ class MergePO:
         base_path: Path,
         output_path: Optional[Path] = None,
         exported_path: Optional[Path] = None,
+        domain_path: Optional[Path] = None,
         sort_entries: bool = False,
         sort_references: bool = False,
         reset_suggested_merges: bool = False,
@@ -39,6 +40,7 @@ class MergePO:
 
         self.output_path = Path(output_path or base_path).resolve()
         self.exported_path = Path(exported_path).resolve() if exported_path else None
+        self.domain_path = Path(domain_path).resolve() if domain_path else None
 
         self.persistent_data_path = PERSISTENT_DATA_PATH / self.base_file_identifier
         self.suggested_merges_file_path = self.persistent_data_path / "suggested_merges"
@@ -53,6 +55,10 @@ class MergePO:
         self.suggested_merges: "dict[str, set[str]]" = (
             load_persistent_data(self.suggested_merges_file_path) or dict()
         )
+        self.domain_text: Optional[str] = None
+        if self.domain_path:
+            with open(self.domain_path) as domain_file:
+                self.domain_text = domain_file.read()
 
     def non_removed_output_entries(self):
         for entry in self.output_entries:
@@ -61,9 +67,7 @@ class MergePO:
 
     def start(self):
         self._run()
-
         save_persistent_data(self.suggested_merges_file_path, self.suggested_merges)
-
         self.save_output_file()
         self.describe_changes()
 
@@ -82,6 +86,8 @@ class MergePO:
         self.filter_no_occurrences()
         self.filter_duplicate_occurrences()
 
+        if self.domain_text:
+            self.apply_entry_domain()
         self.filter_removed_entries()
 
         if self.sort_entries:
@@ -189,6 +195,26 @@ class MergePO:
         Actually filter out removed entries from output entries
         """
         self.output_entries = list(self.non_removed_output_entries())
+
+    def apply_entry_domain(self):
+        """Prevent addition/removal of entries which are not present in the domain"""
+        assert self.domain_text
+        revokable_removal_reasons = {
+            EntryRemovalReason.NOT_IN_EXPORTED,
+            EntryRemovalReason.NO_OCCURRENCES,
+        }
+        output_entries: list[MergePOEntry] = []
+        for entry in self.output_entries:
+            msgid = entry.msgid
+            if not entry.is_base_entry() and msgid not in self.domain_text:
+                continue
+            if (
+                entry.removal_reason in revokable_removal_reasons
+                and msgid not in self.domain_text
+            ):
+                entry.removal_reason = None
+            output_entries.append(entry)
+        self.output_entries = output_entries
 
     def suggest_merge_same_msgid(self):
         """
@@ -363,6 +389,11 @@ def main():
         help="Output file path, if not given defaults to base path (replaces original file)",
     )
     parser.add_argument("-e", "--exported-path", help="Exported file path")
+    parser.add_argument(
+        "-d",
+        "--domain-path",
+        help="Domain file path, only msgids present in this file's content are added or removed. If not given domain defaults to all msgids",
+    )
     parser.add_argument(
         "-S",
         "--sort-entries",
