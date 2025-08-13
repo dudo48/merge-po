@@ -72,14 +72,3 @@ def test_sorting(output_path: Path):
         sort_references=True,
     ).start()
     assert output_path.read_text() == paths.answer_path.read_text()
-
-
-def test_matching(output_path: Path):
-    paths = Paths.from_test_name("matching")
-    MergePO(
-        base_path=paths.base_path,
-        exported_path=paths.exported_path,
-        output_path=output_path,
-        regex="message[3-9]",
-    ).start()
-    assert output_path.read_text() == paths.answer_path.read_text()

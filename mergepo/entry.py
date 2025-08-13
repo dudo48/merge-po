@@ -1,4 +1,3 @@
-import re
 from collections import Counter
 from enum import Enum
 from typing import Optional, Tuple, cast
@@ -13,15 +12,13 @@ Occurrence = Tuple[str, str]
 
 class EntrySource(Enum):
     BASE = 0
-    EXTERNAL = 1
-    EXPORTED = 2
+    EXPORTED = 1
 
 
 class EntryRemovalReason(Enum):
     DUPLICATE = "Duplicate entry"
     NOT_IN_EXPORTED = "Not in exported file"
     NO_OCCURRENCES = "No references"
-    EXCLUDED = "Excluded entry"
     MERGED = "Merged with another entry"
 
 
@@ -30,7 +27,6 @@ class MergePOEntry:
         self.entry = entry
         self.source = source
         self.original_occurrences = [occurrence for occurrence in entry.occurrences]
-        self.original_msgstr = entry.msgstr
         self.removal_reason: Optional[EntryRemovalReason] = None
 
     @property
@@ -66,29 +62,6 @@ class MergePOEntry:
     def __lt__(self, other: "MergePOEntry"):
         return self.__key() < other.__key()
 
-    # functions to check if a specific part of the entry matches a regex
-    def _occurrences_match(self, regex: str):
-        matched_occurrences = MergePOEntry.filter_occurrences(self.occurrences, regex)
-
-        # empty occurrences are always matched
-        return matched_occurrences or not self.occurrences
-
-    def _msgid_matches(self, regex: str):
-        return bool(re.search(regex, self.msgid))
-
-    def _msgstr_matches(self, regex: str):
-        return bool(re.search(regex, self.msgstr))
-
-    def matches(self, regex: str):
-        """
-        Whether the entry matches a regex
-        """
-        return (
-            self._occurrences_match(regex)
-            or self._msgid_matches(regex)
-            or self._msgstr_matches(regex)
-        )
-
     def filter_duplicate_occurrences(self):
         # used dict keys to maintain list order
         self.occurrences = list(dict.fromkeys(self.occurrences))
@@ -111,20 +84,15 @@ class MergePOEntry:
         )
 
     def is_base_entry(self):
-        return self.source == EntrySource.BASE
-
-    def is_external_entry(self):
-        return self.source == EntrySource.EXTERNAL
+        return self.source is EntrySource.BASE
 
     def is_exported_entry(self):
-        return self.source == EntrySource.EXPORTED
+        return self.source is EntrySource.EXPORTED
 
     def describe_changes(self):
         changes: list[str] = []
 
-        # Tell if file was not originally in the base file
-        if self.is_external_entry():
-            changes.append("Added from external file")
+        # Tell if entry was not originally in the base file
         if self.is_exported_entry():
             changes.append("Added from exported file")
 
@@ -139,10 +107,6 @@ class MergePOEntry:
             changes.append(
                 f"Added {sum(added_occurrences.values())} and removed {sum(removed_occurrences.values())} references"
             )
-
-        # Detect changed translation
-        if self.msgstr != self.original_msgstr:
-            changes.append("Updated msgstr")
 
         return ", ".join(changes)
 
@@ -179,10 +143,6 @@ class MergePOEntry:
                 pick(options=options, title=title, indicator=PICK_INDICATOR),
             )
             destinations[j].occurrences.append(occurrence)
-
-    @staticmethod
-    def filter_occurrences(occurrences: "list[Occurrence]", regex: str):
-        return [o for o in occurrences if re.search(regex, o[0])]
 
     @staticmethod
     def get_normalized_msgid(msgid: str):
